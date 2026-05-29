@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ag-ui-workflow"
+version = "0.1.0"
+description = "Workflow runtime components for AG UI pipelines."
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["ag_ui_workflow"]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+ag_ui_workflow = "."
