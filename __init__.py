@@ -3,7 +3,6 @@ from .condition import WorkflowConditionNode
 from .nodes import (
     WorkflowChatNode,
     WorkflowFileNode,
-    WorkflowImageNode,
     WorkflowServiceNode,
     WorkflowOperationNode,
     WorkflowSkillNode,
@@ -28,7 +27,6 @@ __all__ = [
     "WorkflowServiceNode",
     "WorkflowChatNode",
     "WorkflowFileNode",
-    "WorkflowImageNode",
     "WorkflowStepDefinition",
     "workflow_service_registry",
     "event_to_dict",

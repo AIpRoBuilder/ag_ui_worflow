@@ -18,8 +18,6 @@ from ag_ui.core import (
 from .types import StepRunOutput
 from .session import WorkflowSession, bind_workflow_session, unbind_workflow_session
 from .streaming import to_sse_payload
-from .condition import WorkflowConditionNode
-from .nodes import WorkflowImageNode, WorkflowOperationNode, WorkflowStepNode
 
 
 class WorkflowEngine:
@@ -136,8 +134,6 @@ class WorkflowEngine:
 
         if node_kind == "operation":
             return False
-        if node_kind == "image" or ext_type == "image":
-            return False
         if input_required is False:
             return False
         return True
@@ -196,12 +192,14 @@ class WorkflowEngine:
                 status = self.pipeline.proceed()
                 if step_id in self.session.step_outputs:
                     return CStatus()
+                
                 if status.isErr():
                     return status
 
                 status = self.pipeline.run()
                 if step_id in self.session.step_outputs:
                     return CStatus()
+                
                 if status.isErr():
                     return status
 
@@ -215,7 +213,7 @@ class WorkflowEngine:
                 f"requested step {step_id} did not execute in current pipeline cycle; completed steps: {completed}",
             )
         finally:
-            unbind_workflow_session()
+            unbind_workflow_session(self.session.thread_id)
 
     def run_all_steps(
         self,

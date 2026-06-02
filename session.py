@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from threading import get_ident
 from typing import Any, Callable
 import uuid
 from .types import StepRunOutput
@@ -17,21 +18,19 @@ class WorkflowSession:
     submit_callbacks: dict[str, Callable[[StepRunOutput], None]] = field(default_factory=dict)
 
 
-_BOUND_SESSION: WorkflowSession | None = None
+_BOUND_SESSIONS: dict[str, WorkflowSession] = {}
 
 
 def bind_workflow_session(session: WorkflowSession) -> None:
-    global _BOUND_SESSION
-    _BOUND_SESSION = session
+    _BOUND_SESSIONS[session.thread_id] = session
 
 
-def unbind_workflow_session() -> None:
-    global _BOUND_SESSION
-    _BOUND_SESSION = None
+def unbind_workflow_session(thread_id: str) -> None:
+    _BOUND_SESSIONS.pop(thread_id, None)
 
 
-def get_bound_workflow_session() -> WorkflowSession:
-    session = _BOUND_SESSION
+def get_bound_workflow_session(thread_id: str) -> WorkflowSession:
+    session = _BOUND_SESSIONS.get(thread_id)
     if session is None:
         raise RuntimeError("Workflow session is not bound")
     return session
