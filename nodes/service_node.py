@@ -6,7 +6,7 @@ from typing import Any
 from pydaograph import CStatus, GNode
 
 from ..services import workflow_service_registry
-from ..session import get_bound_workflow_session
+from ..session import get_node_workflow_session
 from ..types import StepRunOutput
 from ._shared import _get_step_output_derived_keys
 
@@ -39,7 +39,7 @@ class WorkflowServiceNode(GNode):
         self._pid: int | None = None
 
     def run(self) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         self._set_state("running")
         dependency_results = {
             dep: session.step_outputs[dep]
@@ -69,14 +69,14 @@ class WorkflowServiceNode(GNode):
         return CStatus()
 
     def _set_state(self, state: str) -> None:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.step_states[self.STEP_ID] = state
 
     def card_payload(self, output: StepRunOutput) -> dict[str, Any]:
         return output.card
 
     def get_derived_keys(self) -> list[str]:
-        return _get_step_output_derived_keys(self.STEP_ID)
+        return _get_step_output_derived_keys(self, self.STEP_ID)
 
     def clone(self):
         return self
@@ -161,7 +161,6 @@ class WorkflowServiceNode(GNode):
         )
 
         return StepRunOutput(
-            summary=f"Service {self.STEP_ID} is running (pid={self._pid}).",
             card={
                 "service": self.STEP_ID,
                 "status": "running",

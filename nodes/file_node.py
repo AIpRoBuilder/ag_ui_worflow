@@ -9,7 +9,7 @@ from typing import Any
 
 from pydaograph import CStatus, GNode
 
-from ..session import get_bound_workflow_session
+from ..session import get_node_workflow_session
 from ..types import StepRunOutput
 from ._shared import _decode_bytes_string, _get_step_output_derived_keys, _safe_string
 
@@ -35,12 +35,12 @@ class WorkflowFileNode(GNode):
         self.setInputHandler(self._input_handler)
 
     def _input_handler(self, user_input: str) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.pending_inputs[self.STEP_ID] = user_input
         return CStatus()
 
     def run(self) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         self._set_state("running")
 
         files, storage_override = self._parse_file_input(session.pending_inputs.get(self.STEP_ID, ""))
@@ -74,14 +74,14 @@ class WorkflowFileNode(GNode):
         return CStatus()
 
     def _set_state(self, state: str) -> None:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.step_states[self.STEP_ID] = state
 
     def card_payload(self, output: StepRunOutput) -> dict[str, Any]:
         return output.card
 
     def get_derived_keys(self) -> list[str]:
-        return _get_step_output_derived_keys(self.STEP_ID)
+        return _get_step_output_derived_keys(self, self.STEP_ID)
 
     def _parse_file_input(self, raw_input: Any) -> tuple[list[dict[str, Any]], str | None]:
         parsed: Any = raw_input
@@ -302,7 +302,6 @@ class WorkflowFileNode(GNode):
             for item in saved_files
             if _safe_string(item.get("fileName"))
         ]
-        summary = f"Saved {len(saved_files)} file(s)."
         card = {
             "fileCount": len(saved_files),
             "files": file_names,
@@ -313,7 +312,7 @@ class WorkflowFileNode(GNode):
             "savedLocations": locations,
             "fileCount": len(saved_files),
         }
-        return StepRunOutput(summary=summary, card=card, derived=derived)
+        return StepRunOutput(card=card, derived=derived)
 
     def clone(self):
         return self

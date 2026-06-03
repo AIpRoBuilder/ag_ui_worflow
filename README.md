@@ -1,0 +1,1 @@
+python3.10 -m pip install -e . --no-deps

@@ -11,7 +11,7 @@ from typing import Any
 from meta_agent.tools.file_tools import parse_skill_md, extract_skill_commands
 
 from ..services import workflow_service_registry
-from ..session import get_bound_workflow_session
+from ..session import get_node_workflow_session
 
 try:  # Optional dependency for OpenAI-compatible chat providers
     from openai import OpenAI
@@ -128,9 +128,9 @@ def _normalize_step_input(raw_input: Any) -> str:
     return _safe_string(parsed)
 
 
-def _get_step_output_derived_keys(step_id: str) -> list[str]:
+def _get_step_output_derived_keys(owner: Any, step_id: str) -> list[str]:
     try:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(owner)
     except RuntimeError:
         return []
 

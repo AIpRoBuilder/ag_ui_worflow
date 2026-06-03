@@ -4,7 +4,7 @@ from typing import Any
 
 from pydaograph import CStatus, GNode
 
-from ..session import get_bound_workflow_session
+from ..session import get_node_workflow_session
 from ..types import StepRunOutput
 from ._shared import _get_step_output_derived_keys, _resolve_service_usages_for_step
 
@@ -24,7 +24,7 @@ class WorkflowOperationNode(GNode):
         self.setWaitForInput(False)
 
     def run(self) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         self._set_state("running")
         dependency_results = {
             dep: session.step_outputs[dep]
@@ -54,14 +54,14 @@ class WorkflowOperationNode(GNode):
         return CStatus()
 
     def _set_state(self, state: str) -> None:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.step_states[self.STEP_ID] = state
 
     def card_payload(self, output: StepRunOutput) -> dict[str, Any]:
         return output.card
 
     def get_derived_keys(self) -> list[str]:
-        return _get_step_output_derived_keys(self.STEP_ID)
+        return _get_step_output_derived_keys(self, self.STEP_ID)
 
     def use_service(self, session_state: dict[str, Any]) -> list[dict[str, Any]]:
         meta_map = session_state.get("_workflow_step_meta_map")

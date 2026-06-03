@@ -4,18 +4,9 @@ from pathlib import Path
 import uuid
 from typing import Any, Callable, Iterator, Generator
 from pydaograph import CStatus, GPipeline
-from ag_ui.core import (
-    CustomEvent,
-    RunErrorEvent,
-    RunFinishedEvent,
-    RunStartedEvent,
-    StepFinishedEvent,
-    StepStartedEvent,
-    TextMessageContentEvent,
-    TextMessageEndEvent,
-    TextMessageStartEvent,
-)
-from .types import StepRunOutput
+from .events import WorkflowEventFactory
+from .tools import set_pipeline_id
+from .types import StepRunInput, StepRunOutput, step_output_text
 from .session import WorkflowSession, bind_workflow_session, unbind_workflow_session
 from .streaming import to_sse_payload
 
@@ -35,6 +26,7 @@ class WorkflowEngine:
 
         self.pipeline: GPipeline | None = None
         self.session = WorkflowSession(thread_id=thread_id)
+        self._events = WorkflowEventFactory()
         self._sync_steps_meta_to_session_state()
         self._build_pipeline()
 
@@ -96,6 +88,8 @@ class WorkflowEngine:
         if status.isErr():
             raise RuntimeError(f"buildFromJson failed: {status.getInfo()}")
 
+        set_pipeline_id(self.pipeline, self.thread_id)
+
         status = self.pipeline.init()
         if status.isErr():
             raise RuntimeError(f"pipeline.init failed: {status.getInfo()}")
@@ -125,10 +119,6 @@ class WorkflowEngine:
         }
 
     def _step_requires_user_input(self, step: dict[str, Any]) -> bool:
-        ext_data = step.get("extData") or step.get("ext_data") or {}
-        ext_type = ""
-        ext_type = str(ext_data.get("type", "")).strip().lower() if isinstance(ext_data, dict) else str(ext_data).strip().lower()
-
         node_kind = str(step.get("nodeKind", "")).strip().lower()
         input_required = bool(step.get("inputRequired", True))
 
@@ -161,16 +151,13 @@ class WorkflowEngine:
     def run_step(
         self,
         step_id: str,
-        user_input: Any,
-        callback: Callable[[StepRunOutput], None] | None = None,
+        user_input: StepRunInput,
         *,
-        preserve_run_id: bool = False,
+        callback: Callable[[StepRunOutput], None] | None = None,
     ) -> CStatus:
         if self.pipeline is None:
             return CStatus(1006, "pipeline is not initialized")
 
-        if not preserve_run_id:
-            self.session.run_id = str(uuid.uuid4())
         self.session.pending_inputs[step_id] = user_input
         if callback is not None:
             self.session.submit_callbacks[step_id] = callback
@@ -217,7 +204,7 @@ class WorkflowEngine:
 
     def run_all_steps(
         self,
-        step_inputs: dict[str, Any] | None = None,
+        step_inputs: dict[str, StepRunInput] | None = None,
         callbacks: dict[str, Callable[[StepRunOutput], None]] | None = None,
     ) -> CStatus:
         if self.pipeline is None:
@@ -245,85 +232,89 @@ class WorkflowEngine:
                 step_id,
                 step_input,
                 callback=submit_callbacks.get(step_id),
-                preserve_run_id=True,
             )
             if status.isErr():
                 return status
 
         return CStatus()
 
-    def _run_step_events(self, step_id: str, user_input: Any) -> Iterator[str]:
+    def _resolve_step_output(self, step_id: str) -> StepRunOutput | None:
+        output = self.session.step_outputs.get(step_id)
+        if output is not None:
+            return output
+
+        card_payload = self.session.step_cards.get(step_id)
+        step_state = str(self.session.step_states.get(step_id, "")).strip().lower()
+        if card_payload is None and step_state not in {"completed", "done", "finished", "success", "succeeded"}:
+            return None
+
+        synthesized = StepRunOutput(
+            card=card_payload if isinstance(card_payload, dict) else {},
+            derived={},
+        )
+        self.session.step_outputs[step_id] = synthesized
+        return synthesized
+
+    def _execute_step_events(
+        self,
+        step: dict[str, Any],
+        step_input: StepRunInput,
+        terminal_ids: set[str],
+    ) -> Generator[str, None, tuple[bool, str, StepRunOutput | None]]:
+        captured_output: dict[str, StepRunOutput] = {}
+
+        def _on_submit(output: StepRunOutput) -> None:
+            captured_output["value"] = output
+
+        step_id = str(step.get("id", "")).strip()
+        yield to_sse_payload(self._events.step_started_event(step_name=step_id))
+
+        status = self.run_step(step_id, step_input, callback=_on_submit)
+        if status.isErr():
+            yield to_sse_payload(self._events.error_event(message=status.getInfo(), code=str(status.getCode())))
+            return False, step_id, None
+
+        output = captured_output.get("value") or self._resolve_step_output(step_id)
+        if output is None:
+            yield to_sse_payload(
+                self._events.error_event(
+                    message=f"step output missing after proceed/run for {step_id}",
+                    code="missing_step_output",
+                )
+            )
+            return False, step_id, None
+
+        streamed_deltas = self.session.streamed_text_deltas.pop(step_id, None)
+        for event in self._events.message_events(content=step_output_text(output), deltas=streamed_deltas):
+            yield to_sse_payload(event)
+
+        yield to_sse_payload(
+            self._events.step_card_event(
+                session=self.session,
+                step=step,
+                output=output,
+                unlocked=True,
+                is_final=(step_id in terminal_ids),
+            )
+        )
+        yield to_sse_payload(self._events.step_finished_event(step_name=step_id))
+        return True, step_id, output
+
+    def _run_step_events(self, step_id: str, user_input: StepRunInput) -> Iterator[str]:
         terminal_ids = self._terminal_step_ids()
-        yield to_sse_payload(self.start_event(self.session))
+        yield to_sse_payload(self._events.start_event(self.session))
         last_step_id = ""
         last_output: StepRunOutput | None = None
 
-        def _execute_step_events(
-            step: dict[str, Any],
-            step_input: Any,
-            *,
-            preserve_id: bool,
-        ) -> Generator[str, None, tuple[bool, str, StepRunOutput | None]]:
-            captured_output: dict[str, Any] = {}
-
-            def _on_submit(output: StepRunOutput) -> None:
-                captured_output["value"] = output
-
-            sid = str(step.get("id", "")).strip()
-            yield to_sse_payload(self.step_started_event(step_name=sid))
-
-            status = self.run_step(sid, step_input, callback=_on_submit, preserve_run_id=preserve_id)
-            if status.isErr():
-                yield to_sse_payload(self.error_event(message=status.getInfo(), code=str(status.getCode())))
-                return False, sid, None
-
-            output = captured_output.get("value") or self.session.step_outputs.get(sid)
-            if output is None:
-                card_payload = self.session.step_cards.get(sid)
-                step_state = str(self.session.step_states.get(sid, "")).strip().lower()
-                if card_payload is not None or step_state in {"completed", "done", "finished", "success", "succeeded"}:
-                    summary = ""
-                    if isinstance(card_payload, dict):
-                        summary = str(card_payload.get("summary", "")).strip() or str(card_payload.get("label", "")).strip()
-                    if not summary:
-                        summary = f"{sid} completed"
-                    synthesized = StepRunOutput(
-                        summary=summary,
-                        card=card_payload if isinstance(card_payload, dict) else {},
-                        derived={},
-                    )
-                    self.session.step_outputs[sid] = synthesized
-                    output = synthesized
-            if output is None:
-                yield to_sse_payload(
-                    self.error_event(
-                        message=f"step output missing after proceed/run for {sid}",
-                        code="missing_step_output",
-                    )
-                )
-                return False, sid, None
-
-            streamed_deltas = self.session.streamed_text_deltas.pop(sid, None)
-            for event in self.message_events(content=output.summary, deltas=streamed_deltas):
-                yield to_sse_payload(event)
-
-            yield to_sse_payload(
-                self.step_card_event(
-                    step=step,
-                    output=output,
-                    unlocked=True,
-                    is_final=(sid in terminal_ids),
-                )
-            )
-
-            yield to_sse_payload(self.step_finished_event(step_name=sid))
-            return True, sid, output
-
         first_step = self.get_step_meta(step_id)
-        first_result = yield from _execute_step_events(first_step, user_input, preserve_id=False)
+        first_result = yield from self._execute_step_events(
+            first_step,
+            user_input,
+            terminal_ids,
+        )
         ok, last_step_id, last_output = first_result
         if not ok:
-            yield to_sse_payload(self.finish_event(self.session, result={"ok": False, "stepId": last_step_id}))
+            yield to_sse_payload(self._events.finish_event(self.session, result={"ok": False, "stepId": last_step_id}))
             return
 
         while True:
@@ -331,10 +322,14 @@ class WorkflowEngine:
             if auto_step is None:
                 break
 
-            auto_result = yield from _execute_step_events(auto_step, None, preserve_id=True)
+            auto_result = yield from self._execute_step_events(
+                auto_step,
+                None,
+                terminal_ids,
+            )
             ok, last_step_id, last_output = auto_result
             if not ok:
-                yield to_sse_payload(self.finish_event(self.session, result={"ok": False, "stepId": last_step_id}))
+                yield to_sse_payload(self._events.finish_event(self.session, result={"ok": False, "stepId": last_step_id}))
                 return
 
         result: dict[str, Any] = {
@@ -346,74 +341,15 @@ class WorkflowEngine:
         if result["isFinal"]:
             result["final"] = last_output.derived if last_output is not None else {}
 
-        yield to_sse_payload(self.finish_event(self.session, result=result))
+        yield to_sse_payload(self._events.finish_event(self.session, result=result))
 
-    def _run_all_steps_events(self, step_inputs: dict[str, Any] | None = None) -> Iterator[str]:
+    def _run_all_steps_events(self, step_inputs: dict[str, StepRunInput] | None = None) -> Iterator[str]:
         terminal_ids = self._terminal_step_ids()
         inputs = step_inputs or {}
         self.session.run_id = str(uuid.uuid4())
-        yield to_sse_payload(self.start_event(self.session))
+        yield to_sse_payload(self._events.start_event(self.session))
         last_step_id = ""
         last_output: StepRunOutput | None = None
-
-        def _execute_step_events(
-            step: dict[str, Any],
-            step_input: Any,
-        ) -> Generator[str, None, tuple[bool, str, StepRunOutput | None]]:
-            captured_output: dict[str, Any] = {}
-
-            def _on_submit(output: StepRunOutput) -> None:
-                captured_output["value"] = output
-
-            sid = str(step.get("id", "")).strip()
-            yield to_sse_payload(self.step_started_event(step_name=sid))
-
-            status = self.run_step(sid, step_input, callback=_on_submit, preserve_run_id=True)
-            if status.isErr():
-                yield to_sse_payload(self.error_event(message=status.getInfo(), code=str(status.getCode())))
-                return False, sid, None
-
-            output = captured_output.get("value") or self.session.step_outputs.get(sid)
-            if output is None:
-                card_payload = self.session.step_cards.get(sid)
-                step_state = str(self.session.step_states.get(sid, "")).strip().lower()
-                if card_payload is not None or step_state in {"completed", "done", "finished", "success", "succeeded"}:
-                    summary = ""
-                    if isinstance(card_payload, dict):
-                        summary = str(card_payload.get("summary", "")).strip() or str(card_payload.get("label", "")).strip()
-                    if not summary:
-                        summary = f"{sid} completed"
-                    synthesized = StepRunOutput(
-                        summary=summary,
-                        card=card_payload if isinstance(card_payload, dict) else {},
-                        derived={},
-                    )
-                    self.session.step_outputs[sid] = synthesized
-                    output = synthesized
-            if output is None:
-                yield to_sse_payload(
-                    self.error_event(
-                        message=f"step output missing after proceed/run for {sid}",
-                        code="missing_step_output",
-                    )
-                )
-                return False, sid, None
-
-            streamed_deltas = self.session.streamed_text_deltas.pop(sid, None)
-            for event in self.message_events(content=output.summary, deltas=streamed_deltas):
-                yield to_sse_payload(event)
-
-            yield to_sse_payload(
-                self.step_card_event(
-                    step=step,
-                    output=output,
-                    unlocked=True,
-                    is_final=(sid in terminal_ids),
-                )
-            )
-
-            yield to_sse_payload(self.step_finished_event(step_name=sid))
-            return True, sid, output
 
         for step in self.steps_meta:
             step_id = str(step.get("id", "")).strip()
@@ -427,18 +363,22 @@ class WorkflowEngine:
             step_input = inputs.get(step_id)
             if self._step_requires_user_input(step) and not has_input:
                 yield to_sse_payload(
-                    self.error_event(
+                    self._events.error_event(
                         message=f"input required for step {step_id}",
                         code="1008",
                     )
                 )
-                yield to_sse_payload(self.finish_event(self.session, result={"ok": False, "stepId": step_id}))
+                yield to_sse_payload(self._events.finish_event(self.session, result={"ok": False, "stepId": step_id}))
                 return
 
-            step_result = yield from _execute_step_events(step, step_input)
+            step_result = yield from self._execute_step_events(
+                step,
+                step_input,
+                terminal_ids,
+            )
             ok, last_step_id, last_output = step_result
             if not ok:
-                yield to_sse_payload(self.finish_event(self.session, result={"ok": False, "stepId": last_step_id}))
+                yield to_sse_payload(self._events.finish_event(self.session, result={"ok": False, "stepId": last_step_id}))
                 return
 
         result: dict[str, Any] = {
@@ -450,66 +390,5 @@ class WorkflowEngine:
         if result["isFinal"]:
             result["final"] = last_output.derived if last_output is not None else {}
 
-        yield to_sse_payload(self.finish_event(self.session, result=result))
-
-    def start_event(self, session: WorkflowSession) -> RunStartedEvent:
-        return RunStartedEvent(threadId=session.thread_id, runId=session.run_id)
-
-    def finish_event(self, session: WorkflowSession, result: Any | None = None) -> RunFinishedEvent:
-        return RunFinishedEvent(threadId=session.thread_id, runId=session.run_id, result=result)
-
-    def error_event(self, message: str, code: str | None = None) -> RunErrorEvent:
-        return RunErrorEvent(message=message, code=code)
-
-    def step_started_event(self, step_name: str) -> StepStartedEvent:
-        return StepStartedEvent(stepName=step_name)
-
-    def step_finished_event(self, step_name: str) -> StepFinishedEvent:
-        return StepFinishedEvent(stepName=step_name)
-
-    def message_events(
-        self,
-        content: str,
-        role: str = "assistant",
-        deltas: list[str] | None = None,
-    ) -> list[Any]:
-        message_id = str(uuid.uuid4())
-        content_parts = deltas if deltas else [content]
-        events: list[Any] = [
-            TextMessageStartEvent(messageId=message_id, role=role),
-        ]
-        for part in content_parts:
-            if part:
-                events.append(TextMessageContentEvent(messageId=message_id, delta=part))
-        events.append(TextMessageEndEvent(messageId=message_id))
-        return events
-
-    def step_card_event(
-        self,
-        *,
-        step: dict[str, Any],
-        output: StepRunOutput,
-        unlocked: bool,
-        is_final: bool,
-    ) -> CustomEvent:
-        step_id = step["id"]
-        title = step.get("title", "")
-        prompt = step.get("prompt", "")
-        card_payload = self.session.step_cards.get(step_id)
-        if card_payload is None:
-            raise RuntimeError(f"step card payload missing for step {step_id}")
-        step_state = self.session.step_states.get(step_id, "completed")
-
-        event_payload = {
-            "stepId": step_id,
-            "title": title,
-            "prompt": prompt,
-            "state": step_state,
-            "summary": output.summary,
-            "card": card_payload,
-            "derived": output.derived,
-            "unlocked": unlocked,
-            "isFinal": is_final,
-        }
-        return CustomEvent(name="step_card", value=event_payload)
+        yield to_sse_payload(self._events.finish_event(self.session, result=result))
 

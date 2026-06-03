@@ -9,7 +9,7 @@ description = "Workflow runtime components for AG UI pipelines."
 requires-python = ">=3.10"
 
 [tool.setuptools]
-packages = ["ag_ui_workflow"]
+packages = ["ag_ui_workflow", "ag_ui_workflow.nodes"]
 include-package-data = false
 
 [tool.setuptools.package-dir]

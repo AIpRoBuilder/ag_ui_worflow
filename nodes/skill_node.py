@@ -6,7 +6,7 @@ from typing import Any
 
 from pydaograph import CStatus, GNode
 
-from ..session import get_bound_workflow_session
+from ..session import get_node_workflow_session
 from ..types import StepRunOutput
 from ._shared import (
     _get_step_output_derived_keys,
@@ -74,7 +74,7 @@ class WorkflowSkillNode(GNode):
         self._install_thread.start()
 
     def _input_handler(self, user_input: str) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.pending_inputs[self.STEP_ID] = user_input
         return CStatus()
 
@@ -140,7 +140,7 @@ class WorkflowSkillNode(GNode):
         return CStatus()
 
     def run(self) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         self._set_state("running")
         raw_input = _normalize_step_input(session.pending_inputs.get(self.STEP_ID, ""))
         if self.INPUT_REQUIRED and not raw_input:
@@ -191,14 +191,14 @@ class WorkflowSkillNode(GNode):
         return CStatus()
 
     def _set_state(self, state: str) -> None:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.step_states[self.STEP_ID] = state
 
     def card_payload(self, output: StepRunOutput) -> dict[str, Any]:
         return output.card
 
     def get_derived_keys(self) -> list[str]:
-        return _get_step_output_derived_keys(self.STEP_ID)
+        return _get_step_output_derived_keys(self, self.STEP_ID)
 
     def process_operation(
         self,

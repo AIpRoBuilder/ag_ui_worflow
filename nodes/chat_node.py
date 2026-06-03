@@ -6,7 +6,7 @@ from typing import Any
 
 from pydaograph import CStatus, GNode
 
-from ..session import get_bound_workflow_session
+from ..session import get_node_workflow_session
 from ..types import StepRunOutput
 from ._shared import OpenAI, _get_step_output_derived_keys, _normalize_step_input, _safe_string
 
@@ -50,12 +50,12 @@ class WorkflowChatNode(GNode):
         self._client = self._build_openai_client(self._provider)
 
     def _input_handler(self, user_input: str) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.pending_inputs[self.STEP_ID] = user_input
         return CStatus()
 
     def run(self) -> CStatus:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         self._set_state("running")
         session.streamed_text_deltas.pop(self.STEP_ID, None)
         raw_input = _normalize_step_input(session.pending_inputs.get(self.STEP_ID, ""))
@@ -103,14 +103,14 @@ class WorkflowChatNode(GNode):
         return CStatus()
 
     def _set_state(self, state: str) -> None:
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.step_states[self.STEP_ID] = state
 
     def card_payload(self, output: StepRunOutput) -> dict[str, Any]:
         return output.card
 
     def get_derived_keys(self) -> list[str]:
-        return _get_step_output_derived_keys(self.STEP_ID)
+        return _get_step_output_derived_keys(self, self.STEP_ID)
 
     def _serialize_dependency_results(
         self,
@@ -118,7 +118,6 @@ class WorkflowChatNode(GNode):
     ) -> dict[str, Any]:
         return {
             dep: {
-                "summary": output.summary,
                 "card": output.card,
                 "derived": output.derived,
             }
@@ -220,7 +219,7 @@ class WorkflowChatNode(GNode):
         if not content:
             raise RuntimeError("WorkflowChatNode received empty LLM response")
 
-        session = get_bound_workflow_session()
+        session = get_node_workflow_session(self)
         session.streamed_text_deltas[self.STEP_ID] = deltas
         return content
 
@@ -235,7 +234,7 @@ class WorkflowChatNode(GNode):
             "provider": self._provider,
             "model": self._model,
         }
-        return StepRunOutput(summary=content, card=card, derived=derived)
+        return StepRunOutput(card=card, derived=derived)
 
     def clone(self):
         return self
