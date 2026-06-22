@@ -1,7 +1,6 @@
 from .engine import WorkflowEngine
 from .condition import WorkflowConditionNode
 from .nodes import (
-    WorkflowChatNode,
     WorkflowFileNode,
     WorkflowServiceNode,
     WorkflowOperationNode,
@@ -27,7 +26,6 @@ __all__ = [
     "WorkflowOperationNode",
     "WorkflowSkillNode",
     "WorkflowServiceNode",
-    "WorkflowChatNode",
     "WorkflowFileNode",
     "WorkflowStepDefinition",
     "workflow_service_registry",

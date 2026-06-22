@@ -93,7 +93,6 @@ class WorkflowFileNode(GNode):
                 parsed = json.loads(stripped)
             except json.JSONDecodeError:
                 parsed = stripped
-
         files: list[dict[str, Any]] = []
         storage_override: str | None = None
 
@@ -145,7 +144,7 @@ class WorkflowFileNode(GNode):
 
             data: bytes | None = None
 
-            content_b64 = value.get("fileContentBase64") or value.get("contentBase64")
+            content_b64 = value.get("bytes") or value.get("contentBase64")
             if isinstance(content_b64, str) and content_b64.strip():
                 try:
                     data = base64.b64decode(content_b64)
@@ -184,6 +183,13 @@ class WorkflowFileNode(GNode):
             raw = value.strip()
             if not raw:
                 return None
+
+            candidate = Path(raw).expanduser()
+            if candidate.exists() and candidate.is_file():
+                return {
+                    "fileName": candidate.name or "uploaded_file",
+                    "bytes": candidate.read_bytes(),
+                }
 
             parsed_data = _decode_bytes_string(raw)
             if parsed_data is not None:
@@ -302,14 +308,13 @@ class WorkflowFileNode(GNode):
             for item in saved_files
             if _safe_string(item.get("fileName"))
         ]
+        saved_files = [{"fileName": file_names[i], "local_path": locations[i]} for i in range(len(saved_files))]
         card = {
             "fileCount": len(saved_files),
-            "files": file_names,
-            "locations": locations,
+            "files": saved_files,
         }
         derived = {
-            "savedFiles": file_names,
-            "savedLocations": locations,
+            "savedFiles": saved_files,
             "fileCount": len(saved_files),
         }
         return StepRunOutput(card=card, derived=derived)

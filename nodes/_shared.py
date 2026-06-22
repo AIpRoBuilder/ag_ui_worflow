@@ -13,11 +13,6 @@ from meta_agent.tools.file_tools import parse_skill_md, extract_skill_commands
 from ..services import workflow_service_registry
 from ..session import get_node_workflow_session
 
-try:  # Optional dependency for OpenAI-compatible chat providers
-    from openai import OpenAI
-except Exception:  # pragma: no cover - handled at runtime
-    OpenAI = None  # type: ignore
-
 
 _UPLOAD_DIR = Path(tempfile.gettempdir()) / "meta_agent_uploads"
 

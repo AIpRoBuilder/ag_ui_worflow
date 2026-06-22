@@ -37,7 +37,7 @@ class WorkflowSkillNode(GNode):
     TITLE: str = ""
     PROMPT: str = ""
     DEPENDENCIES: list[str] = []
-    INPUT_REQUIRED: bool = True
+    INPUT_REQUIRED: bool = False
     NODE_KIND: str = "skill"
 
     SKILL_DIR: str = ""
