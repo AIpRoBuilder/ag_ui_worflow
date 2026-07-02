@@ -262,7 +262,7 @@ class WorkflowFileNode(GNode):
                     {
                         "fileName": file_name,
                         "storage": "local",
-                        "location": str(target_path),
+                        "path": str(target_path),
                         "byteSize": len(data),
                     }
                 )
@@ -290,7 +290,7 @@ class WorkflowFileNode(GNode):
                 {
                     "fileName": file_name,
                     "storage": "remote",
-                    "location": location,
+                    "path": location,
                     "byteSize": len(data),
                 }
             )
@@ -299,16 +299,16 @@ class WorkflowFileNode(GNode):
 
     def build_step_output(self, saved_files: list[dict[str, Any]]) -> StepRunOutput:
         locations = [
-            _safe_string(item.get("location"))
+            _safe_string(item.get("path"))
             for item in saved_files
-            if _safe_string(item.get("location"))
+            if _safe_string(item.get("path"))
         ]
         file_names = [
             _safe_string(item.get("fileName"))
             for item in saved_files
             if _safe_string(item.get("fileName"))
         ]
-        saved_files = [{"fileName": file_names[i], "local_path": locations[i]} for i in range(len(saved_files))]
+        saved_files = [{"fileName": file_names[i], "path": locations[i]} for i in range(len(saved_files))]
         card = {
             "fileCount": len(saved_files),
             "files": saved_files,
