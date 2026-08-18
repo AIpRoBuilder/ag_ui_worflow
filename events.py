@@ -16,7 +16,7 @@ from ag_ui.core import (
 )
 
 from .session import WorkflowSession
-from .types import StepRunOutput
+from .workflow_types import StepRunOutput
 
 
 class WorkflowEventFactory:

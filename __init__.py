@@ -10,7 +10,7 @@ from .nodes import (
 from .session import WorkflowSession
 from .services import WorkflowServiceRecord, WorkflowServiceRegistryCenter, workflow_service_registry
 from .streaming import event_to_dict, to_sse_payload
-from .types import StepRunInput, StepRunOutput, UserInput, WorkflowConditionDefinition, WorkflowStepDefinition
+from .workflow_types import StepRunInput, StepRunOutput, UserInput, WorkflowConditionDefinition, WorkflowStepDefinition
 
 __all__ = [
     "StepRunOutput",

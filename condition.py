@@ -5,7 +5,7 @@ from typing import Any
 from pydaograph import GCondition, CStatus
 
 from .session import get_bound_workflow_session
-from .types import StepRunOutput
+from .workflow_types import StepRunOutput
 
 
 def _safe_string(value: Any) -> str:

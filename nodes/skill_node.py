@@ -7,7 +7,7 @@ from typing import Any
 from pydaograph import CStatus, GNode
 
 from ..session import get_node_workflow_session
-from ..types import StepRunOutput
+from ..workflow_types import StepRunOutput
 from ._shared import (
     _get_step_output_derived_keys,
     _normalize_step_input,

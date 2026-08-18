@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 import uuid
 from .tools import get_pipeline_id
-from .types import StepRunInput, StepRunOutput
+from .workflow_types import StepRunInput, StepRunOutput
 
 
 @dataclass(slots=True)

@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterator, Generator
 from pydaograph import CStatus, GPipeline
 from .events import WorkflowEventFactory
 from .tools import set_pipeline_id
-from .types import StepRunInput, StepRunOutput, step_output_text
+from .workflow_types import StepRunInput, StepRunOutput, step_output_text
 from .session import WorkflowSession, bind_workflow_session, unbind_workflow_session
 from .streaming import to_sse_payload
 
