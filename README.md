@@ -1,2 +1,79 @@
-python3.10 -m pip install -e . --no-deps
-source /Users/xiechuxi/Desktop/codes/zeus/.venv/bin/activate
+# ag-ui-workflow
+
+`ag-ui-workflow` provides workflow runtime components for AG UI pipelines.
+
+## Requirements
+
+- Python 3.10 or newer
+- `git`
+- `pip`, `uv`, or Poetry
+- A working C++ build toolchain because `pydaograph` is installed from source
+
+On macOS, install Xcode Command Line Tools first:
+
+```bash
+xcode-select --install
+```
+
+## Install
+
+### pip
+
+Install from a local checkout:
+
+```bash
+python3.10 -m pip install .
+```
+
+### uv
+
+Install from a local checkout:
+
+```bash
+uv venv .venv
+source .venv/bin/activate
+uv pip install .
+```
+
+### Poetry
+
+Add the local checkout to an existing Poetry project:
+
+```bash
+poetry add /absolute/path/to/ag_ui_worflow
+```
+
+If you want to install from inside this checkout using Poetry's environment:
+
+```bash
+poetry env use python3.10
+poetry run pip install .
+```
+
+Poetry 2.x is recommended.
+
+## Docker
+
+Build the image:
+
+```bash
+docker build -t ag-ui-workflow .
+```
+
+Run the default smoke test:
+
+```bash
+docker run --rm ag-ui-workflow
+```
+
+The image only verifies that the library installs and imports correctly. Override the default command in downstream images or `docker run` invocations for your own workflow entrypoint.
+
+## Quick Check
+
+```python
+from ag_ui_workflow import WorkflowEngine, WorkflowSession
+```
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

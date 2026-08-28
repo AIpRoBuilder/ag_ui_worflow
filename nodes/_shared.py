@@ -8,14 +8,59 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from meta_agent.tools.file_tools import parse_skill_md, extract_skill_commands
-
 from ..services import workflow_service_registry
 from ..session import get_node_workflow_session
 
 
 _UPLOAD_DIR = Path(tempfile.gettempdir()) / "meta_agent_uploads"
 
+def parse_skill_md(text: str) -> dict[str, str]:
+    """Parse a skill.md document into a dict keyed by H2 section name.
+
+    Only level-2 headings (``## Heading``) are used as section boundaries.
+    The title (H1) is stored under the key ``"_title"``.
+    """
+    sections: dict[str, str] = {}
+    current_key: str | None = None
+    current_lines: list[str] = []
+
+    for line in text.splitlines(keepends=True):
+        stripped = line.rstrip("\n").rstrip("\r")
+        if stripped.startswith("## "):
+            if current_key is not None:
+                sections[current_key] = "".join(current_lines).strip()
+            current_key = stripped[3:].strip()
+            current_lines = []
+        elif stripped.startswith("# ") and current_key is None:
+            # H1 title – store separately
+            sections["_title"] = stripped[2:].strip()
+        else:
+            if current_key is not None:
+                current_lines.append(line)
+
+    if current_key is not None:
+        sections[current_key] = "".join(current_lines).strip()
+
+    return sections
+
+
+def extract_skill_commands(section_text: str) -> list[str]:
+    commands: list[str] = []
+    in_block = False
+
+    for line in section_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_block = not in_block
+            continue
+        if not in_block:
+            continue
+
+        command = stripped.lstrip("$ ").strip()
+        if command:
+            commands.append(command)
+
+    return commands
 
 def _safe_string(value: Any) -> str:
     if value is None:

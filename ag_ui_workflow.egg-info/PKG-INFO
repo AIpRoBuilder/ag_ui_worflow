@@ -1,5 +1,0 @@
-Metadata-Version: 2.4
-Name: ag-ui-workflow
-Version: 0.1.0
-Summary: Workflow runtime components for AG UI pipelines.
-Requires-Python: >=3.10

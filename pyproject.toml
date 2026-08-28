@@ -6,11 +6,46 @@ build-backend = "setuptools.build_meta"
 name = "ag-ui-workflow"
 version = "0.1.0"
 description = "Workflow runtime components for AG UI pipelines."
-requires-python = ">=3.10"
+readme = "README.md"
+requires-python = ">=3.10,<4.0"
+license = { file = "LICENSE" }
+dependencies = [
+	"ag-ui-protocol>=0.1.13",
+	"opensandbox>=0.1.7",
+	"opensandbox-code-interpreter>=0.1.2",
+	"pydaograph @ git+https://github.com/AIpRoBuilder/meta_ai_builder.git#subdirectory=python",
+]
+classifiers = [
+	"License :: OSI Approved :: Apache Software License",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3.10",
+	"Programming Language :: Python :: 3.11",
+	"Operating System :: OS Independent",
+]
+
+[project.urls]
+Repository = "https://github.com/AIpRoBuilder/ag_ui_worflow"
+
+[tool.poetry]
+name = "ag-ui-workflow"
+version = "0.1.0"
+description = "Workflow runtime components for AG UI pipelines."
+license = "Apache-2.0"
+readme = "README.md"
+authors = ["AIpRoBuilder"]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+"ag-ui-protocol" = ">=0.1.13"
+"opensandbox" = ">=0.1.7"
+"opensandbox-code-interpreter" = ">=0.1.2"
+meta_agent = { git = "https://github.com/AIpRoBuilder/meta_agent.git" }
+pydaograph = { git = "https://github.com/AIpRoBuilder/meta_ai_builder.git", subdirectory = "python" }
 
 [tool.setuptools]
 packages = ["ag_ui_workflow", "ag_ui_workflow.nodes"]
 include-package-data = false
+license-files = ["LICENSE"]
 
 [tool.setuptools.package-dir]
 ag_ui_workflow = "."
