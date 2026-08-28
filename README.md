@@ -52,22 +52,6 @@ poetry run pip install .
 
 Poetry 2.x is recommended.
 
-## Docker
-
-Build the image:
-
-```bash
-docker build -t ag-ui-workflow .
-```
-
-Run the default smoke test:
-
-```bash
-docker run --rm ag-ui-workflow
-```
-
-The image only verifies that the library installs and imports correctly. Override the default command in downstream images or `docker run` invocations for your own workflow entrypoint.
-
 ## Quick Check
 
 ```python
