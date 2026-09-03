@@ -45,7 +45,15 @@ meta_agent = { git = "https://github.com/AIpRoBuilder/meta_agent.git" }
 pydaograph = { git = "https://github.com/AIpRoBuilder/meta_ai_builder.git", subdirectory = "python" }
 
 [tool.setuptools]
-packages = ["ag_ui_workflow", "ag_ui_workflow.nodes"]
+packages = [
+	"ag_ui_workflow",
+	"ag_ui_workflow.nodes",
+	"ag_ui_workflow.nodes.file_node",
+	"ag_ui_workflow.nodes.operation_node",
+	"ag_ui_workflow.nodes.skill_node",
+	"ag_ui_workflow.nodes.spatial_temporal_contract_node",
+	"ag_ui_workflow.nodes.step_node",
+]
 include-package-data = false
 license-files = ["LICENSE"]
 
