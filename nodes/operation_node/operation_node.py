@@ -11,7 +11,6 @@ from .._shared import (
     _apply_node_descriptor_attributes,
     _build_node_descriptor_meta,
     _get_step_output_derived_keys,
-    _resolve_service_usages_for_step,
 )
 
 
