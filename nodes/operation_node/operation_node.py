@@ -20,7 +20,6 @@ class WorkflowOperationNode(GNode):
     TITLE = ""
     PROMPT = ""
     DEPENDENCIES: list[str] = []
-    NODE_KIND = "operation"
     DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
 
     def __init__(self) -> None:
@@ -83,7 +82,6 @@ class WorkflowOperationNode(GNode):
             "prompt": cls.PROMPT,
             "dependencies": list(cls.DEPENDENCIES),
             "inputRequired": cls.INPUT_REQUIRED,
-            "nodeKind": cls.NODE_KIND,
             "metaNodeKind": cls.meta_node_kind(),
             **_build_node_descriptor_meta(cls, cls.DESCRIPTOR_PROMPT_FILE),
         }

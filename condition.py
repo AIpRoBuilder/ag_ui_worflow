@@ -71,7 +71,6 @@ class WorkflowConditionNode(GCondition):
     # in the GCondition element list built by the graph pipeline.
     BRANCHES: list[str] = []
     INPUT_REQUIRED: bool = False
-    NODE_KIND: str = "condition"
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -210,5 +209,4 @@ class WorkflowConditionNode(GCondition):
             "dependencies": list(cls.DEPENDENCIES),
             "branches": list(cls.BRANCHES),
             "inputRequired": cls.INPUT_REQUIRED,
-            "nodeKind": cls.NODE_KIND,
         }

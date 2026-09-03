@@ -25,7 +25,6 @@ class SpatialTemporalContractNode(GNode):
     PROMPT = "Generates a spatial-temporal contract from dependency output or session state."
     DEPENDENCIES: list[str] = []
     INPUT_REQUIRED = False
-    NODE_KIND = "spatial_temporal_contract"
     DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
 
     OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
@@ -93,7 +92,6 @@ class SpatialTemporalContractNode(GNode):
             "prompt": cls.PROMPT,
             "dependencies": list(cls.DEPENDENCIES),
             "inputRequired": cls.INPUT_REQUIRED,
-            "nodeKind": cls.NODE_KIND,
             "metaNodeKind": cls.meta_node_kind(),
             **_build_node_descriptor_meta(cls, cls.DESCRIPTOR_PROMPT_FILE),
         }

@@ -51,7 +51,6 @@ class WorkflowStepDefinition(Protocol):
     prompt: str
     dependencies: list[str]
     inputRequired: bool
-    nodeKind: str
 
 
 class WorkflowConditionDefinition(Protocol):
@@ -61,4 +60,3 @@ class WorkflowConditionDefinition(Protocol):
     dependencies: list[str]
     branches: list[str]
     inputRequired: bool
-    nodeKind: str

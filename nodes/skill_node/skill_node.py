@@ -41,7 +41,6 @@ class WorkflowSkillNode(GNode):
     PROMPT: str = ""
     DEPENDENCIES: list[str] = []
     INPUT_REQUIRED: bool = False
-    NODE_KIND: str = "skill"
     DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
 
     SKILL_DIR: str = ""
@@ -234,7 +233,6 @@ class WorkflowSkillNode(GNode):
             "prompt": cls.PROMPT,
             "dependencies": list(cls.DEPENDENCIES),
             "inputRequired": cls.INPUT_REQUIRED,
-            "nodeKind": cls.NODE_KIND,
             "metaNodeKind": cls.meta_node_kind(),
             **_build_node_descriptor_meta(cls, cls.DESCRIPTOR_PROMPT_FILE),
         }

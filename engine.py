@@ -97,11 +97,8 @@ class WorkflowEngine:
         }
 
     def _step_requires_user_input(self, step: dict[str, Any]) -> bool:
-        node_kind = str(step.get("nodeKind", "")).strip().lower()
         input_required = bool(step.get("inputRequired", True))
 
-        if node_kind == "operation":
-            return False
         if input_required is False:
             return False
         return True

@@ -27,7 +27,6 @@ class WorkflowFileNode(GNode):
     TITLE = ""
     PROMPT = ""
     DEPENDENCIES: list[str] = []
-    NODE_KIND = "file"
     DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
 
     STORAGE_BACKEND_ENV = "META_AGENT_FILE_STORAGE_BACKEND"
@@ -344,7 +343,6 @@ class WorkflowFileNode(GNode):
             "prompt": cls.PROMPT,
             "dependencies": list(cls.DEPENDENCIES),
             "inputRequired": cls.INPUT_REQUIRED,
-            "nodeKind": cls.NODE_KIND,
             "metaNodeKind": cls.meta_node_kind(),
             **_build_node_descriptor_meta(cls, cls.DESCRIPTOR_PROMPT_FILE),
         }
