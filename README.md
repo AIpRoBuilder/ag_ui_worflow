@@ -58,6 +58,12 @@ Poetry 2.x is recommended.
 from ag_ui_workflow import WorkflowEngine, WorkflowSession
 ```
 
+## SpatialTemporal Contract Node
+
+`SpatialTemporalContractNode` generates a spatial-temporal contract JSON from a scenario, image, or video description by calling the OpenAI API with a packaged markdown system prompt.
+
+Set `OPENAI_API_KEY` before using it. You can optionally override the model with `OPENAI_MODEL` or `session_state["spatialTemporalContractModel"]`.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).

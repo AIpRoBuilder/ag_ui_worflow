@@ -5,6 +5,7 @@ from .nodes import (
     WorkflowServiceNode,
     WorkflowOperationNode,
     WorkflowSkillNode,
+    SpatialTemporalContractNode,
     WorkflowStepNode,
 )
 from .session import WorkflowSession
@@ -27,6 +28,7 @@ __all__ = [
     "WorkflowSkillNode",
     "WorkflowServiceNode",
     "WorkflowFileNode",
+    "SpatialTemporalContractNode",
     "WorkflowStepDefinition",
     "workflow_service_registry",
     "event_to_dict",

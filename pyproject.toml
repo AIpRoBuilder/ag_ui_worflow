@@ -11,6 +11,7 @@ requires-python = ">=3.10,<4.0"
 license = { file = "LICENSE" }
 dependencies = [
 	"ag-ui-protocol>=0.1.13",
+	"openai>=1.0.0",
 	"opensandbox>=0.1.7",
 	"opensandbox-code-interpreter>=0.1.2",
 	"pydaograph @ git+https://github.com/AIpRoBuilder/meta_ai_builder.git#subdirectory=python",
@@ -37,6 +38,7 @@ authors = ["AIpRoBuilder"]
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
 "ag-ui-protocol" = ">=0.1.13"
+"openai" = ">=1.0.0"
 "opensandbox" = ">=0.1.7"
 "opensandbox-code-interpreter" = ">=0.1.2"
 meta_agent = { git = "https://github.com/AIpRoBuilder/meta_agent.git" }
@@ -49,3 +51,6 @@ license-files = ["LICENSE"]
 
 [tool.setuptools.package-dir]
 ag_ui_workflow = "."
+
+[tool.setuptools.package-data]
+"ag_ui_workflow.nodes" = ["prompts/spatial_temporal_contract_system_prompt.md"]
