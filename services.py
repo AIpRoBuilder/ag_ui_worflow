@@ -51,7 +51,7 @@ class WorkflowServiceRegistryCenter:
 
 			record = WorkflowServiceRecord(
 				service_id=sid,
-				node_class=str(node_class).strip() or "WorkflowServiceNode",
+				node_class=str(node_class).strip() or "WorkflowService",
 				metadata=dict(metadata or {}),
 			)
 			self._records[sid] = record
@@ -75,7 +75,7 @@ class WorkflowServiceRegistryCenter:
 		with self._lock:
 			record = self._records.get(sid)
 			if record is None:
-				record = WorkflowServiceRecord(service_id=sid, node_class="WorkflowServiceNode")
+				record = WorkflowServiceRecord(service_id=sid, node_class="WorkflowService")
 				self._records[sid] = record
 
 			record.status = str(status).strip() or record.status
