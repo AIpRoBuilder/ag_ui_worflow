@@ -2,7 +2,7 @@
 
 ## Structure
 - Subclass `WorkflowStepNode` for steps that require direct user input before producing a `StepRunOutput`.
-- Define `STEP_ID`, `TITLE`, `PROMPT`, and any `DEPENDENCIES` or `SERVICES` at class level.
+- Define `STEP_ID`, `TITLE`, `PROMPT`, and any `DEPENDENCIES` at class level.
 - Implement `process_input(user_input, dependency_results, session_state)` as the node's main utility.
 - Return a `StepRunOutput` whose `card` drives UI presentation and whose `derived` values feed later nodes.
 

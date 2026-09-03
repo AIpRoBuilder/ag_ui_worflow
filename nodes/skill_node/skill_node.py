@@ -7,7 +7,7 @@ from typing import Any
 from pydaograph import CStatus, GNode
 
 from ...session import get_node_workflow_session
-from ...tools import node_main_utility
+from ...tools import node_main_utility, node_subclass_implementation
 from ...workflow_types import StepRunOutput
 from .._shared import (
     _apply_node_descriptor_attributes,
@@ -40,7 +40,6 @@ class WorkflowSkillNode(GNode):
     TITLE: str = ""
     PROMPT: str = ""
     DEPENDENCIES: list[str] = []
-    SERVICES: list[dict[str, str]] = []
     INPUT_REQUIRED: bool = False
     NODE_KIND: str = "skill"
     DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
@@ -207,6 +206,7 @@ class WorkflowSkillNode(GNode):
         return _get_step_output_derived_keys(self, self.STEP_ID)
 
     @node_main_utility
+    @node_subclass_implementation
     def process_operation(
         self,
         user_input: str,
@@ -224,7 +224,7 @@ class WorkflowSkillNode(GNode):
 
     @classmethod
     def meta_node_kind(cls) -> str:
-        return cls.__name__
+        return "WorkflowSkillNode"
 
     @classmethod
     def step_meta(cls) -> dict[str, Any]:
@@ -233,7 +233,6 @@ class WorkflowSkillNode(GNode):
             "title": cls.TITLE,
             "prompt": cls.PROMPT,
             "dependencies": list(cls.DEPENDENCIES),
-            "services": list(cls.SERVICES),
             "inputRequired": cls.INPUT_REQUIRED,
             "nodeKind": cls.NODE_KIND,
             "metaNodeKind": cls.meta_node_kind(),

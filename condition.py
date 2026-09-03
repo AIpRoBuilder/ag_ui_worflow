@@ -5,7 +5,7 @@ from typing import Any
 from pydaograph import GCondition, CStatus
 
 from .session import get_bound_workflow_session
-from .tools import node_main_utility
+from .tools import node_main_utility, node_subclass_implementation
 from .workflow_types import StepRunOutput
 
 
@@ -155,6 +155,7 @@ class WorkflowConditionNode(GCondition):
     # ------------------------------------------------------------------
 
     @node_main_utility
+    @node_subclass_implementation
     def evaluate(
         self,
         dependency_results: dict[str, StepRunOutput],

@@ -63,6 +63,7 @@ from ag_ui_workflow import WorkflowEngine, WorkflowSession
 `SpatialTemporalContractNode` generates a spatial-temporal contract JSON from a scenario, image, or video description by calling the OpenAI API with a packaged markdown system prompt.
 
 Set `OPENAI_API_KEY` before using it. You can optionally override the model with `OPENAI_MODEL` or `session_state["spatialTemporalContractModel"]`.
+You can also add extra generation guidance through `session_state["spatialTemporalContractPrompt"]` or override `_build_generation_user_prompt()` / `_generate_contract()` in a subclass.
 
 ## License
 

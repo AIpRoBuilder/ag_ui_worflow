@@ -27,7 +27,6 @@ class WorkflowFileNode(GNode):
     TITLE = ""
     PROMPT = ""
     DEPENDENCIES: list[str] = []
-    SERVICES: list[dict[str, str]] = []
     NODE_KIND = "file"
     DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
 
@@ -335,7 +334,7 @@ class WorkflowFileNode(GNode):
 
     @classmethod
     def meta_node_kind(cls) -> str:
-        return cls.__name__
+        return "WorkflowFileNode"
 
     @classmethod
     def step_meta(cls) -> dict[str, Any]:
@@ -344,7 +343,6 @@ class WorkflowFileNode(GNode):
             "title": cls.TITLE,
             "prompt": cls.PROMPT,
             "dependencies": list(cls.DEPENDENCIES),
-            "services": list(cls.SERVICES),
             "inputRequired": cls.INPUT_REQUIRED,
             "nodeKind": cls.NODE_KIND,
             "metaNodeKind": cls.meta_node_kind(),
