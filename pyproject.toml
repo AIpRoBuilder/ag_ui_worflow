@@ -53,4 +53,11 @@ license-files = ["LICENSE"]
 ag_ui_workflow = "."
 
 [tool.setuptools.package-data]
-"ag_ui_workflow.nodes" = ["prompts/spatial_temporal_contract_system_prompt.md"]
+"ag_ui_workflow.nodes" = [
+	"step_node/descriptor_prompt.md",
+	"file_node/descriptor_prompt.md",
+	"operation_node/descriptor_prompt.md",
+	"skill_node/descriptor_prompt.md",
+	"spatial_temporal_contract_node/descriptor_prompt.md",
+	"spatial_temporal_contract_node/spatial_temporal_contract_system_prompt.md",
+]

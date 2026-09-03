@@ -50,7 +50,6 @@ class WorkflowStepDefinition(Protocol):
     title: str
     prompt: str
     dependencies: list[str]
-    services: list[dict[str, str]]
     inputRequired: bool
     nodeKind: str
 

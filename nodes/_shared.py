@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import ast
 import base64
+import inspect
 import json
 import tempfile
 import uuid
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +16,15 @@ from ..session import get_node_workflow_session
 
 _UPLOAD_DIR = Path(tempfile.gettempdir()) / "meta_agent_uploads"
 
+_NODE_DESCRIPTOR_SECTIONS = {
+    "Structure": "structure",
+    "Function": "function",
+    "Implementation Guide": "implementation_guide",
+    "Example": "example",
+}
+
 def parse_skill_md(text: str) -> dict[str, str]:
-    """Parse a skill.md document into a dict keyed by H2 section name.
+    """Parse a markdown document into a dict keyed by H2 section name.
 
     Only level-2 headings (``## Heading``) are used as section boundaries.
     The title (H1) is stored under the key ``"_title"``.
@@ -61,6 +70,56 @@ def extract_skill_commands(section_text: str) -> list[str]:
             commands.append(command)
 
     return commands
+
+
+@lru_cache(maxsize=None)
+def _read_node_descriptor_prompt(descriptor_path: str) -> str:
+    path = Path(descriptor_path)
+    if not path.exists():
+        raise FileNotFoundError(f"descriptor prompt not found at {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _resolve_node_descriptor_path(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> Path:
+    cls = owner if isinstance(owner, type) else owner.__class__
+    module_file = Path(inspect.getfile(cls)).resolve()
+    descriptor_path = module_file.parent / descriptor_prompt_file
+    if not descriptor_path.exists():
+        raise FileNotFoundError(f"descriptor prompt not found at {descriptor_path}")
+    return descriptor_path
+
+
+def _load_node_descriptor_prompt(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> str:
+    descriptor_path = _resolve_node_descriptor_path(owner, descriptor_prompt_file)
+    return _read_node_descriptor_prompt(str(descriptor_path))
+
+
+def _load_node_descriptor_sections(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> dict[str, str]:
+    sections = parse_skill_md(_load_node_descriptor_prompt(owner, descriptor_prompt_file))
+    return {
+        mapped_key: sections.get(section_name, "").strip()
+        for section_name, mapped_key in _NODE_DESCRIPTOR_SECTIONS.items()
+    }
+
+
+def _apply_node_descriptor_attributes(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> dict[str, str]:
+    descriptor_text = _load_node_descriptor_prompt(owner, descriptor_prompt_file)
+    sections = _load_node_descriptor_sections(owner, descriptor_prompt_file)
+    setattr(owner, "meta_description", descriptor_text)
+    for attr_name, value in sections.items():
+        setattr(owner, attr_name, value)
+    return sections
+
+
+def _build_node_descriptor_meta(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> dict[str, str]:
+    sections = _load_node_descriptor_sections(owner, descriptor_prompt_file)
+    return {
+        "metaDescription": _load_node_descriptor_prompt(owner, descriptor_prompt_file),
+        "structure": sections["structure"],
+        "function": sections["function"],
+        "implementationGuide": sections["implementation_guide"],
+        "example": sections["example"],
+    }
 
 def _safe_string(value: Any) -> str:
     if value is None:
@@ -182,102 +241,3 @@ def _get_step_output_derived_keys(owner: Any, step_id: str) -> list[str]:
 
 def _workflow_root_dir() -> Path:
     return Path(__file__).resolve().parent.parent
-
-
-def _resolve_service_md_path(service_name: str) -> Path | None:
-    raw_name = _safe_string(service_name)
-    if not raw_name:
-        return None
-
-    candidate_paths: list[Path] = []
-    raw_path = Path(raw_name)
-    repo_root = _workflow_root_dir()
-
-    if raw_path.suffix.lower() == ".md":
-        candidate_paths.extend(
-            [
-                raw_path,
-                repo_root / raw_path,
-            ]
-        )
-    else:
-        candidate_paths.extend(
-            [
-                raw_path / "service.md",
-                repo_root / raw_path / "service.md",
-                repo_root / "agent_services" / raw_path / "service.md",
-            ]
-        )
-
-    for candidate in candidate_paths:
-        try:
-            resolved = candidate.expanduser().resolve()
-        except Exception:
-            continue
-        if resolved.exists() and resolved.is_file():
-            return resolved
-    return None
-
-
-def _collect_declared_services_for_step(step_id: str, session_state: dict[str, Any]) -> list[dict[str, str]]:
-    meta_map = session_state.get("_workflow_step_meta_map")
-    if not isinstance(meta_map, dict):
-        return []
-    step_meta = meta_map.get(step_id)
-    if not isinstance(step_meta, dict):
-        return []
-    services = step_meta.get("services") or []
-    if not isinstance(services, list):
-        return []
-
-    normalized: list[dict[str, str]] = []
-    for item in services:
-        if not isinstance(item, dict):
-            continue
-        service_name = _safe_string(item.get("service_name"))
-        if not service_name:
-            continue
-        normalized.append(
-            {
-                "service_name": service_name,
-                "use_desc": _safe_string(item.get("use_desc")),
-            }
-        )
-    return normalized
-
-
-def _resolve_service_usages_for_step(step_id: str, session_state: dict[str, Any]) -> list[dict[str, Any]]:
-    service_defs = _collect_declared_services_for_step(step_id, session_state)
-    if not service_defs:
-        return []
-
-    usages: list[dict[str, Any]] = []
-    for item in service_defs:
-        service_name = item["service_name"]
-        use_desc = item["use_desc"]
-
-        record = workflow_service_registry.require_running(service_name)
-
-        service_md_path = _resolve_service_md_path(service_name)
-        if service_md_path is None:
-            raise FileNotFoundError(
-                f"service '{service_name}' is running but service.md was not found. "
-                f"Expected '{service_name}/service.md' or 'agent_services/{service_name}/service.md'."
-            )
-
-        service_md_text = service_md_path.read_text(encoding="utf-8")
-        sections = parse_skill_md(service_md_text)
-        using_text = _safe_string(sections.get("Using"))
-
-        usages.append(
-            {
-                "service_name": service_name,
-                "use_desc": use_desc,
-                "service_md_path": str(service_md_path),
-                "service_using": using_text,
-                "pid": record.pid,
-                "status": record.status,
-            }
-        )
-
-    return usages

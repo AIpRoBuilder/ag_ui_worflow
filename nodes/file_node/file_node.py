@@ -9,10 +9,16 @@ from typing import Any
 
 from pydaograph import CStatus, GNode
 
-from ..session import get_node_workflow_session
-from ..tools import node_main_utility
-from ..workflow_types import StepRunOutput
-from ._shared import _decode_bytes_string, _get_step_output_derived_keys, _safe_string
+from ...session import get_node_workflow_session
+from ...tools import node_main_utility
+from ...workflow_types import StepRunOutput
+from .._shared import (
+    _apply_node_descriptor_attributes,
+    _build_node_descriptor_meta,
+    _decode_bytes_string,
+    _get_step_output_derived_keys,
+    _safe_string,
+)
 
 
 class WorkflowFileNode(GNode):
@@ -21,7 +27,9 @@ class WorkflowFileNode(GNode):
     TITLE = ""
     PROMPT = ""
     DEPENDENCIES: list[str] = []
+    SERVICES: list[dict[str, str]] = []
     NODE_KIND = "file"
+    DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
 
     STORAGE_BACKEND_ENV = "META_AGENT_FILE_STORAGE_BACKEND"
     STORAGE_DIR_ENV = "META_AGENT_FILE_STORAGE_DIR"
@@ -34,6 +42,7 @@ class WorkflowFileNode(GNode):
         self.setWaitForInput(False)
         self.setInputPrompt(self.PROMPT)
         self.setInputHandler(self._input_handler)
+        _apply_node_descriptor_attributes(self, self.DESCRIPTOR_PROMPT_FILE)
 
     def _input_handler(self, user_input: str) -> CStatus:
         session = get_node_workflow_session(self)
@@ -325,12 +334,19 @@ class WorkflowFileNode(GNode):
         return self
 
     @classmethod
+    def meta_node_kind(cls) -> str:
+        return cls.__name__
+
+    @classmethod
     def step_meta(cls) -> dict[str, Any]:
         return {
             "id": cls.STEP_ID,
             "title": cls.TITLE,
             "prompt": cls.PROMPT,
             "dependencies": list(cls.DEPENDENCIES),
+            "services": list(cls.SERVICES),
             "inputRequired": cls.INPUT_REQUIRED,
             "nodeKind": cls.NODE_KIND,
+            "metaNodeKind": cls.meta_node_kind(),
+            **_build_node_descriptor_meta(cls, cls.DESCRIPTOR_PROMPT_FILE),
         }

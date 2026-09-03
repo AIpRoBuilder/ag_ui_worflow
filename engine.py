@@ -37,27 +37,6 @@ class WorkflowEngine:
             if str(step.get("id", "")).strip()
         }
 
-    def _normalize_services(self, step: dict[str, Any]) -> list[dict[str, str]]:
-        services_raw = step.get("services") or []
-        if not isinstance(services_raw, list):
-            return []
-
-        normalized: list[dict[str, str]] = []
-        for item in services_raw:
-            if not isinstance(item, dict):
-                continue
-            service_name = str(item.get("service_name", "")).strip()
-            use_desc = str(item.get("use_desc", "")).strip()
-            if not service_name:
-                continue
-            normalized.append(
-                {
-                    "service_name": service_name,
-                    "use_desc": use_desc,
-                }
-            )
-        return normalized
-
     def _normalize_steps_meta(self, steps_meta: list[dict[str, Any]]) -> list[dict[str, Any]]:
         normalized_steps: list[dict[str, Any]] = []
         for raw_step in steps_meta:
@@ -77,7 +56,6 @@ class WorkflowEngine:
 
             step["id"] = step_id
             step["dependencies"] = [str(dep).strip() for dep in dependencies_raw if str(dep).strip()]
-            step["services"] = self._normalize_services(step)
             normalized_steps.append(step)
 
         return normalized_steps
