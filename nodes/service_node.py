@@ -7,6 +7,7 @@ from pydaograph import CStatus, GNode
 
 from ..services import workflow_service_registry
 from ..session import get_node_workflow_session
+from ..tools import node_main_utility
 from ..workflow_types import StepRunOutput
 from ._shared import _get_step_output_derived_keys
 
@@ -112,6 +113,7 @@ class WorkflowServiceNode(GNode):
             "Launch the background service and return its PID here."
         )
 
+    @node_main_utility
     def process_operation(
         self,
         dependency_results: dict[str, StepRunOutput],

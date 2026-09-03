@@ -1,8 +1,10 @@
+from collections.abc import Callable
 from typing import Any
 from pydaograph import GPipeline, GParam, register_class
 
 
 PIPELINE_ID_GPARAM_KEY = "pipeline.id"
+NODE_MAIN_UTILITY_SIGNATURE_ATTR = "__ag_ui_node_main_utility_signature__"
 
 
 @register_class
@@ -41,3 +43,26 @@ def get_pipeline_id(owner: Any, key: str = PIPELINE_ID_GPARAM_KEY) -> str | None
         return None
     text = str(value)
     return text if text else None
+
+
+def node_main_utility(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Mark a node method as the class main utility function.
+
+    AST tools can identify this decorator and runtime code can read the marker
+    via :func:`get_node_main_utility_signature`.
+    """
+
+    setattr(func, NODE_MAIN_UTILITY_SIGNATURE_ATTR, func.__name__)
+    return func
+
+
+def get_node_main_utility_signature(node_or_class: Any) -> str | None:
+    """Return the marked main utility method name for a node class/instance."""
+
+    cls = node_or_class if isinstance(node_or_class, type) else node_or_class.__class__
+    for attr_name in dir(cls):
+        attr = getattr(cls, attr_name, None)
+        marker = getattr(attr, NODE_MAIN_UTILITY_SIGNATURE_ATTR, None)
+        if isinstance(marker, str) and marker:
+            return marker
+    return None

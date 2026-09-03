@@ -7,6 +7,7 @@ from typing import Any
 from pydaograph import CStatus, GNode
 
 from ..session import get_node_workflow_session
+from ..tools import node_main_utility
 from ..workflow_types import StepRunOutput
 from ._shared import (
     _get_step_output_derived_keys,
@@ -200,6 +201,7 @@ class WorkflowSkillNode(GNode):
     def get_derived_keys(self) -> list[str]:
         return _get_step_output_derived_keys(self, self.STEP_ID)
 
+    @node_main_utility
     def process_operation(
         self,
         user_input: str,

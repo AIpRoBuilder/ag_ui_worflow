@@ -8,6 +8,7 @@ from typing import Any
 from pydaograph import CStatus, GNode
 
 from ..session import get_node_workflow_session
+from ..tools import node_main_utility
 from ..workflow_types import StepRunOutput, step_output_text
 from ._shared import _get_step_output_derived_keys, _resolve_service_usages_for_step
 
@@ -101,6 +102,7 @@ class SpatialTemporalContractNode(GNode):
             "nodeKind": cls.NODE_KIND,
         }
 
+    @node_main_utility
     def process_operation(
         self,
         dependency_results: dict[str, StepRunOutput],
