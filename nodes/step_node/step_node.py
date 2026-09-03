@@ -12,7 +12,6 @@ from .._shared import (
     _build_node_descriptor_meta,
     _get_step_output_derived_keys,
     _normalize_step_input,
-    _resolve_service_usages_for_step,
 )
 
 
