@@ -9,6 +9,12 @@ import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+import importlib
+import sys
+from pathlib import Path
+import tempfile
+from functools import lru_cache
+import inspect
 
 from ..services import workflow_service_registry
 from ..session import get_node_workflow_session
@@ -71,6 +77,24 @@ def extract_skill_commands(section_text: str) -> list[str]:
 
     return commands
 
+
+def resolve_package_root(current_file: str) -> Path:
+    default_package_root = Path(current_file).resolve().parents[1]
+    ag_spec = importlib.util.find_spec("ag_ui_workflow")
+    if ag_spec and ag_spec.origin:
+        return Path(ag_spec.origin).resolve().parent
+    return default_package_root
+
+
+def ensure_package_parent_on_sys_path(root_dir: Path) -> Path:
+    parent_dir = str(root_dir.parent)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    return root_dir
+
+
+def bootstrap_package_root(current_file: str) -> Path:
+    return ensure_package_parent_on_sys_path(resolve_package_root(current_file))
 
 @lru_cache(maxsize=None)
 def _read_node_descriptor_prompt(descriptor_path: str) -> str:

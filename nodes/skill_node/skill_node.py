@@ -15,9 +15,12 @@ from .._shared import (
     _get_step_output_derived_keys,
     _normalize_step_input,
     _workflow_root_dir,
+    bootstrap_package_root,
     extract_skill_commands,
     parse_skill_md,
 )
+
+ROOT_DIR = bootstrap_package_root(__file__)
 
 
 class WorkflowSkillNode(GNode):
@@ -41,7 +44,7 @@ class WorkflowSkillNode(GNode):
     PROMPT: str = ""
     DEPENDENCIES: list[str] = []
     INPUT_REQUIRED: bool = False
-    DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
+    DESCRIPTOR_PROMPT_FILE = str(ROOT_DIR / "nodes" / "skill_node" / "descriptor_prompt.md")
 
     SKILL_DIR: str = ""
     SKILL_MD_PATH: str = ""

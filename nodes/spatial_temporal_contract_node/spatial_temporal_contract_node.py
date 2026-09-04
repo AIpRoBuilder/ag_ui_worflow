@@ -14,7 +14,10 @@ from .._shared import (
     _apply_node_descriptor_attributes,
     _build_node_descriptor_meta,
     _get_step_output_derived_keys,
+    bootstrap_package_root,
 )
+
+ROOT_DIR = bootstrap_package_root(__file__)
 
 
 class SpatialTemporalContractNode(GNode):
@@ -25,7 +28,7 @@ class SpatialTemporalContractNode(GNode):
     PROMPT = "Generates a spatial-temporal contract from dependency output or session state."
     DEPENDENCIES: list[str] = []
     INPUT_REQUIRED = False
-    DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
+    DESCRIPTOR_PROMPT_FILE = str(ROOT_DIR / "nodes" / "spatial_temporal_contract_node" / "descriptor_prompt.md")
 
     OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
     OPENAI_MODEL_ENV = "OPENAI_MODEL"

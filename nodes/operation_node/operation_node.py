@@ -11,7 +11,10 @@ from .._shared import (
     _apply_node_descriptor_attributes,
     _build_node_descriptor_meta,
     _get_step_output_derived_keys,
+    bootstrap_package_root,
 )
+
+ROOT_DIR = bootstrap_package_root(__file__)
 
 
 class WorkflowOperationNode(GNode):
@@ -20,7 +23,7 @@ class WorkflowOperationNode(GNode):
     TITLE = ""
     PROMPT = ""
     DEPENDENCIES: list[str] = []
-    DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
+    DESCRIPTOR_PROMPT_FILE = str(ROOT_DIR / "nodes" / "operation_node" / "descriptor_prompt.md")
 
     def __init__(self) -> None:
         super().__init__()

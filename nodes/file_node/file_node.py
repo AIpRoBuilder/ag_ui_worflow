@@ -18,7 +18,10 @@ from .._shared import (
     _decode_bytes_string,
     _get_step_output_derived_keys,
     _safe_string,
+    bootstrap_package_root,
 )
+
+ROOT_DIR = bootstrap_package_root(__file__)
 
 
 class WorkflowFileNode(GNode):
@@ -27,7 +30,7 @@ class WorkflowFileNode(GNode):
     TITLE = ""
     PROMPT = ""
     DEPENDENCIES: list[str] = []
-    DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
+    DESCRIPTOR_PROMPT_FILE = str(ROOT_DIR / "nodes" / "file_node" / "descriptor_prompt.md")
 
     STORAGE_BACKEND_ENV = "META_AGENT_FILE_STORAGE_BACKEND"
     STORAGE_DIR_ENV = "META_AGENT_FILE_STORAGE_DIR"

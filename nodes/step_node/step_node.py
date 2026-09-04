@@ -12,8 +12,9 @@ from .._shared import (
     _build_node_descriptor_meta,
     _get_step_output_derived_keys,
     _normalize_step_input,
+    bootstrap_package_root,
 )
-
+ROOT_DIR = bootstrap_package_root(__file__)
 
 class WorkflowStepNode(GNode):
     STEP_ID = ""
@@ -21,7 +22,7 @@ class WorkflowStepNode(GNode):
     PROMPT = ""
     DEPENDENCIES: list[str] = []
     INPUT_REQUIRED = True
-    DESCRIPTOR_PROMPT_FILE = "descriptor_prompt.md"
+    DESCRIPTOR_PROMPT_FILE = str(ROOT_DIR / "nodes" / "step_node" / "descriptor_prompt.md")
 
     def __init__(self) -> None:
         super().__init__()
