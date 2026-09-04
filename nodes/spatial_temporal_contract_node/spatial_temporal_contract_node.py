@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +31,15 @@ class SpatialTemporalContractNode(GNode):
     INPUT_REQUIRED = False
     DESCRIPTOR_PROMPT_FILE = str(ROOT_DIR / "nodes" / "spatial_temporal_contract_node" / "descriptor_prompt.md")
 
-    OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
-    OPENAI_MODEL_ENV = "OPENAI_MODEL"
-    DEFAULT_OPENAI_MODEL = "deepseek-V4"
+    DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
+    DEEPSEEK_MODEL_ENV = "DEEPSEEK_MODEL"
+    DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+    DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
+    LEGACY_OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
+    LEGACY_OPENAI_MODEL_ENV = "OPENAI_MODEL"
+    OPENAI_API_KEY_ENV = DEEPSEEK_API_KEY_ENV
+    OPENAI_MODEL_ENV = DEEPSEEK_MODEL_ENV
+    DEFAULT_OPENAI_MODEL = DEFAULT_DEEPSEEK_MODEL
     SYSTEM_PROMPT_FILE = "spatial_temporal_contract_system_prompt.md"
 
     def __init__(self) -> None:
@@ -144,24 +151,34 @@ class SpatialTemporalContractNode(GNode):
 
         state_key = self._as_text(
             session_state.get("spatialTemporalContractApiKey")
+            or session_state.get("deepseekApiKey")
             or session_state.get("openaiApiKey")
-            or session_state.get(self.OPENAI_API_KEY_ENV)
+            or session_state.get(self.DEEPSEEK_API_KEY_ENV)
+            or session_state.get(self.LEGACY_OPENAI_API_KEY_ENV)
         )
-        env_key = self._as_text(os.getenv(self.OPENAI_API_KEY_ENV, ""))
+        env_key = self._as_text(
+            os.getenv(self.DEEPSEEK_API_KEY_ENV, "")
+            or os.getenv(self.LEGACY_OPENAI_API_KEY_ENV, "")
+        )
         api_key = state_key or env_key
         if not api_key:
             raise RuntimeError(
-                "OPENAI_API_KEY is not configured. Set it in the environment or session_state['openaiApiKey']."
+                "DEEPSEEK_API_KEY is not configured. Set it in the environment or session_state['deepseekApiKey']."
             )
 
         model_name = (
             self._as_text(
                 session_state.get("spatialTemporalContractModel")
+                or session_state.get("deepseekModel")
                 or session_state.get("openaiModel")
-                or session_state.get(self.OPENAI_MODEL_ENV)
+                or session_state.get(self.DEEPSEEK_MODEL_ENV)
+                or session_state.get(self.LEGACY_OPENAI_MODEL_ENV)
             )
-            or self._as_text(os.getenv(self.OPENAI_MODEL_ENV, ""))
-            or self.DEFAULT_OPENAI_MODEL
+            or self._as_text(
+                os.getenv(self.DEEPSEEK_MODEL_ENV, "")
+                or os.getenv(self.LEGACY_OPENAI_MODEL_ENV, "")
+            )
+            or self.DEFAULT_DEEPSEEK_MODEL
         )
         system_prompt = self._load_system_prompt()
         guidance_prompt = self._resolve_generation_guidance(session_state)
@@ -222,7 +239,16 @@ class SpatialTemporalContractNode(GNode):
         )
 
     def _load_system_prompt(self) -> str:
-        prompt_path = ROOT_DIR / self.SYSTEM_PROMPT_FILE
+        prompt_file = Path(self.SYSTEM_PROMPT_FILE)
+        if prompt_file.is_absolute():
+            prompt_path = prompt_file
+        else:
+            root_candidate = ROOT_DIR / prompt_file
+            if root_candidate.exists():
+                prompt_path = root_candidate
+            else:
+                module_file = Path(inspect.getfile(self.__class__)).resolve()
+                prompt_path = module_file.parent / prompt_file
         if not prompt_path.exists():
             raise FileNotFoundError(f"system prompt not found at {prompt_path}")
         return prompt_path.read_text(encoding="utf-8").strip()
@@ -232,9 +258,9 @@ class SpatialTemporalContractNode(GNode):
             from openai import OpenAI
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError(
-                "The openai package is required to use SpatialTemporalContractNode. Install the project dependencies first."
+                "The openai package is required to use SpatialTemporalContractNode with DeepSeek. Install the project dependencies first."
             ) from exc
-        return OpenAI(api_key=api_key)
+        return OpenAI(api_key=api_key, base_url=self.DEEPSEEK_BASE_URL)
 
     def _extract_completion_text(self, completion: Any) -> str:
         choices = getattr(completion, "choices", None)

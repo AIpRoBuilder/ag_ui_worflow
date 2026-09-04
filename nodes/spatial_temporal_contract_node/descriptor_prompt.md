@@ -8,12 +8,12 @@
 
 ## Function
 - Resolve a scenario description from session state or upstream step outputs.
-- Call an OpenAI-compatible model and has to use `self._load_system_prompt()` as the system prompt.
+- Call the DeepSeek API through the OpenAI-compatible SDK and use `self._load_system_prompt()` as the system prompt.
 - Parse the model response into normalized spatial-temporal contract JSON.
 - Return the contract, raw response, and usage metadata inside a `StepRunOutput`.
 
 ## Implementation Guide
-- Ensure `OPENAI_API_KEY` or `session_state["openaiApiKey"]` is available before execution.
+- Ensure `DEEPSEEK_API_KEY` or `session_state["deepseekApiKey"]` is available before execution.
 - Provide dependency outputs whose `derived` or `card` fields contain descriptive text if the subclass relies on upstream context.
 - Start `process_operation` by resolving the description from `session_state` or dependency outputs, then build the request payload locally in that same method.
 - When invoking the model in a subclass, always load the system prompt through `self._load_system_prompt()` and pass it as the system message.
@@ -43,11 +43,11 @@ class SceneContractNode(SpatialTemporalContractNode):
         }
         model_name = (
             session_state.get("spatialTemporalContractModel")
-            or session_state.get("openaiModel")
-            or self.DEFAULT_OPENAI_MODEL
+            or session_state.get("deepseekModel")
+            or self.DEFAULT_DEEPSEEK_MODEL
         )
 
-        client = self._create_openai_client(session_state["openaiApiKey"])
+        client = self._create_openai_client(session_state["deepseekApiKey"])
         completion = client.chat.completions.create(
             model=model_name,
             messages=[
