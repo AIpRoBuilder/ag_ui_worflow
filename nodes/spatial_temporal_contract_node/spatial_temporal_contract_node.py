@@ -100,17 +100,97 @@ class SpatialTemporalContractNode(GNode):
         }
 
     @node_main_utility
+    @node_subclass_implementation
     def process_operation(
         self,
         dependency_results: dict[str, StepRunOutput],
         session_state: dict[str, Any],
     ) -> StepRunOutput:
-        description = self._resolve_description(dependency_results, session_state)
-        request_payload = self._build_request_payload(description, dependency_results)
-        contract, raw_response, model_name, usage = self._generate_contract(
-            request_payload,
-            session_state,
+        state_description = session_state.get("spatialTemporalContractDescription")
+        if self._has_content(state_description):
+            description = state_description
+        else:
+            description = None
+            for output in dependency_results.values():
+                derived_description = output.derived.get("spatialTemporalContractDescription")
+                if self._has_content(derived_description):
+                    description = derived_description
+                    break
+
+                card_description = output.card.get("spatialTemporalContractDescription")
+                if self._has_content(card_description):
+                    description = card_description
+                    break
+
+                fallback_text = step_output_text(output)
+                if fallback_text:
+                    description = fallback_text
+                    break
+
+            if description is None:
+                raise RuntimeError(
+                    "No description was found for SpatialTemporalContractNode. "
+                    "Provide it in session_state['spatialTemporalContractDescription'] "
+                    "or in an upstream step output."
+                )
+
+        request_payload: dict[str, Any] = {
+            "description": self._coerce_json_value(description),
+            "returnJsonOnly": True,
+        }
+        dependency_payload = self._serialize_dependency_results(dependency_results)
+        if dependency_payload:
+            request_payload["dependencyContext"] = dependency_payload
+
+        state_key = self._as_text(
+            session_state.get("spatialTemporalContractApiKey")
+            or session_state.get("openaiApiKey")
+            or session_state.get(self.OPENAI_API_KEY_ENV)
         )
+        env_key = self._as_text(os.getenv(self.OPENAI_API_KEY_ENV, ""))
+        api_key = state_key or env_key
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not configured. Set it in the environment or session_state['openaiApiKey']."
+            )
+
+        model_name = (
+            self._as_text(
+                session_state.get("spatialTemporalContractModel")
+                or session_state.get("openaiModel")
+                or session_state.get(self.OPENAI_MODEL_ENV)
+            )
+            or self._as_text(os.getenv(self.OPENAI_MODEL_ENV, ""))
+            or self.DEFAULT_OPENAI_MODEL
+        )
+        system_prompt = self._load_system_prompt()
+        guidance_prompt = self._resolve_generation_guidance(session_state)
+        prompt_parts: list[str] = []
+        if guidance_prompt:
+            prompt_parts.append(
+                "Additional guidance for spatial-temporal contract generation:\n"
+                f"{guidance_prompt}"
+            )
+
+        prompt_parts.append(
+            "Generate a spatial-temporal contract JSON for the following input. "
+            "Return valid JSON only.\n"
+            f"{json.dumps(request_payload, ensure_ascii=False, indent=2)}"
+        )
+        user_prompt = "\n\n".join(prompt_parts)
+
+        client = self._create_openai_client(api_key)
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+        raw_response = self._extract_completion_text(completion)
+        contract = self._normalize_contract(self._parse_contract_json(raw_response))
+        usage = self._extract_usage(completion)
         response_json = json.dumps(contract, ensure_ascii=False, indent=2)
 
         card = {
@@ -135,145 +215,10 @@ class SpatialTemporalContractNode(GNode):
 
         return StepRunOutput(card=card, derived=derived)
 
-    def _build_request_payload(
-        self,
-        description: Any,
-        dependency_results: dict[str, StepRunOutput],
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "description": self._coerce_json_value(description),
-            "returnJsonOnly": True,
-        }
-        dependency_payload = self._serialize_dependency_results(dependency_results)
-        if dependency_payload:
-            payload["dependencyContext"] = dependency_payload
-        return payload
-
-    def _resolve_description(
-        self,
-        dependency_results: dict[str, StepRunOutput],
-        session_state: dict[str, Any],
-    ) -> Any:
-        state_description = session_state.get("spatialTemporalContractDescription")
-        if self._has_content(state_description):
-            return state_description
-
-        for output in dependency_results.values():
-            derived_description = output.derived.get("spatialTemporalContractDescription")
-            if self._has_content(derived_description):
-                return derived_description
-
-            card_description = output.card.get("spatialTemporalContractDescription")
-            if self._has_content(card_description):
-                return card_description
-
-            fallback_text = step_output_text(output)
-            if fallback_text:
-                return fallback_text
-
-        raise RuntimeError(
-            "No description was found for SpatialTemporalContractNode. "
-            "Provide it in session_state['spatialTemporalContractDescription'] "
-            "or in an upstream step output."
-        )
-
-    def _generate_contract(
-        self,
-        request_payload: dict[str, Any],
-        session_state: dict[str, Any],
-    ) -> tuple[dict[str, Any], str, str, dict[str, Any] | None]:
-        """Generate the contract using the default OpenAI chat completion flow.
-
-        Subclasses can override this method when they need full control over the
-        model invocation, or override ``_build_generation_user_prompt`` to only
-        customize the prompt text while preserving the parsing pipeline.
-        """
-        api_key = self._resolve_api_key(session_state)
-        model_name = self._resolve_model(session_state)
-        system_prompt = self._load_system_prompt()
-        client = self._create_openai_client(api_key)
-
-        completion = client.chat.completions.create(
-            model=model_name,
-            messages=self._build_generation_messages(
-                request_payload,
-                session_state,
-                system_prompt,
-            ),
-        )
-
-        raw_response = self._extract_completion_text(completion)
-        contract = self._parse_contract_json(raw_response)
-        usage = self._extract_usage(completion)
-        return self._normalize_contract(contract), raw_response, model_name, usage
-
-    def _build_generation_messages(
-        self,
-        request_payload: dict[str, Any],
-        session_state: dict[str, Any],
-        system_prompt: str,
-    ) -> list[dict[str, str]]:
-        return [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": self._build_generation_user_prompt(
-                    request_payload,
-                    session_state,
-                ),
-            },
-        ]
-        
-    @node_subclass_implementation
-    def _build_generation_user_prompt(
-        self,
-        request_payload: dict[str, Any],
-        session_state: dict[str, Any],
-    ) -> str:
-        guidance_prompt = self._resolve_generation_guidance(session_state)
-        prompt_parts: list[str] = []
-        if guidance_prompt:
-            prompt_parts.append(
-                "Additional guidance for spatial-temporal contract generation:\n"
-                f"{guidance_prompt}"
-            )
-
-        prompt_parts.append(
-            "Generate a spatial-temporal contract JSON for the following input. "
-            "Return valid JSON only.\n"
-            f"{json.dumps(request_payload, ensure_ascii=False, indent=2)}"
-        )
-        return "\n\n".join(prompt_parts)
-
     def _resolve_generation_guidance(self, session_state: dict[str, Any]) -> str:
         return self._as_text(
             session_state.get("spatialTemporalContractPrompt")
             or session_state.get("spatialTemporalContractGuidance")
-        )
-
-    def _resolve_api_key(self, session_state: dict[str, Any]) -> str:
-        state_key = self._as_text(
-            session_state.get("spatialTemporalContractApiKey")
-            or session_state.get("openaiApiKey")
-            or session_state.get(self.OPENAI_API_KEY_ENV)
-        )
-        env_key = self._as_text(os.getenv(self.OPENAI_API_KEY_ENV, ""))
-        api_key = state_key or env_key
-        if not api_key:
-            raise RuntimeError(
-                "OPENAI_API_KEY is not configured. Set it in the environment or session_state['openaiApiKey']."
-            )
-        return api_key
-
-    def _resolve_model(self, session_state: dict[str, Any]) -> str:
-        return (
-            self._as_text(
-                session_state.get("spatialTemporalContractModel")
-                or session_state.get("openaiModel")
-                or session_state.get(self.OPENAI_MODEL_ENV)
-            )
-            or self._as_text(os.getenv(self.OPENAI_MODEL_ENV, ""))
-            or self.DEFAULT_OPENAI_MODEL
         )
 
     def _load_system_prompt(self) -> str:

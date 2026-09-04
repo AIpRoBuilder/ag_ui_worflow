@@ -3,36 +3,67 @@
 ## Structure
 - Subclass `SpatialTemporalContractNode` for nodes that turn dependency or session context into a spatial-temporal contract JSON document.
 - Define `STEP_ID`, optional `TITLE`, and any `DEPENDENCIES` required to source the contract description.
-- Reuse the built-in `process_operation(dependency_results, session_state)` unless you need a custom request or normalization strategy.
-- Override helper methods such as `_build_request_payload`, `_resolve_description`, `_build_generation_user_prompt`, `_generate_contract`, or `_normalize_contract` when specializing behavior.
+- Implement `process_operation(dependency_results, session_state)` on the subclass when you need custom generation behavior.
+- Keep the full request construction, model call, and `StepRunOutput` assembly inside `process_operation` instead of spreading subclass logic across helper overrides.
 
 ## Function
 - Resolve a scenario description from session state or upstream step outputs.
-- Call an OpenAI-compatible model with a packaged markdown system prompt.
+- Call an OpenAI-compatible model and has to use `self._load_system_prompt()` as the system prompt.
 - Parse the model response into normalized spatial-temporal contract JSON.
 - Return the contract, raw response, and usage metadata inside a `StepRunOutput`.
 
 ## Implementation Guide
 - Ensure `OPENAI_API_KEY` or `session_state["openaiApiKey"]` is available before execution.
 - Provide dependency outputs whose `derived` or `card` fields contain descriptive text if the subclass relies on upstream context.
-- Override `_build_request_payload` when additional structured context needs to be passed to the model.
-- Set `session_state["spatialTemporalContractPrompt"]` or `session_state["spatialTemporalContractGuidance"]` to inject extra prompt guidance without subclassing.
-- Override `_build_generation_user_prompt` to append project-specific instructions while keeping the default OpenAI request, parsing, and normalization flow.
-- Override `_generate_contract` when a subclass needs full control over model messages or invocation details.
-- Keep any contract post-processing inside `_normalize_contract` or related helpers so the main operation flow stays stable.
+- Start `process_operation` by resolving the description from `session_state` or dependency outputs, then build the request payload locally in that same method.
+- When invoking the model in a subclass, always load the system prompt through `self._load_system_prompt()` and pass it as the system message.
+- Set `session_state["spatialTemporalContractPrompt"]` or `session_state["spatialTemporalContractGuidance"]` to inject extra user-prompt guidance without changing the system prompt source.
+- Keep JSON parsing, normalization, and card or derived output assembly in `process_operation` so the subclass remains self-contained for code generation.
 - Preserve the JSON-only response contract because downstream consumers expect parseable structured output.
 
 ## Example
 ```python
+import json
+
+from ag_ui_workflow import SpatialTemporalContractNode, StepRunOutput, step_output_text
+
+
 class SceneContractNode(SpatialTemporalContractNode):
     STEP_ID = "scene_contract"
     TITLE = "Scene Contract"
     DEPENDENCIES = ["scene_outline"]
 
-    def _build_generation_user_prompt(self, request_payload, session_state):
-        base_prompt = super()._build_generation_user_prompt(request_payload, session_state)
-        return (
-            f"{base_prompt}\n\n"
-            "Prefer explicit temporal scopes when the scene implies ordered actions."
+    def process_operation(self, dependency_results, session_state):
+        source = dependency_results["scene_outline"]
+        description = source.derived.get("spatialTemporalContractDescription") or step_output_text(source)
+        request_payload = {
+            "description": self._coerce_json_value(description),
+            "returnJsonOnly": True,
+            "style": "Prefer explicit temporal scopes when the scene implies ordered actions.",
+        }
+        model_name = (
+            session_state.get("spatialTemporalContractModel")
+            or session_state.get("openaiModel")
+            or self.DEFAULT_OPENAI_MODEL
+        )
+
+        client = self._create_openai_client(session_state["openaiApiKey"])
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": self._load_system_prompt()},
+                {
+                    "role": "user",
+                    "content": "Generate a spatial-temporal contract JSON. Return valid JSON only.\n"
+                    f"{json.dumps(request_payload, ensure_ascii=False, indent=2)}",
+                },
+            ],
+        )
+        raw_response = self._extract_completion_text(completion)
+        contract = self._normalize_contract(self._parse_contract_json(raw_response))
+        response_json = json.dumps(contract, ensure_ascii=False, indent=2)
+        return StepRunOutput(
+            card={"title": self.TITLE, "response": response_json, "contract": contract},
+            derived={"spatialTemporalContract": contract, "spatialTemporalContractJson": response_json},
         )
 ```
