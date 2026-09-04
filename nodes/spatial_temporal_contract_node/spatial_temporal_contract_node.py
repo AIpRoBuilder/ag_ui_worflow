@@ -177,7 +177,6 @@ class SpatialTemporalContractNode(GNode):
             "or in an upstream step output."
         )
 
-    @node_subclass_implementation
     def _generate_contract(
         self,
         request_payload: dict[str, Any],
@@ -224,7 +223,8 @@ class SpatialTemporalContractNode(GNode):
                 ),
             },
         ]
-
+        
+    @node_subclass_implementation
     def _build_generation_user_prompt(
         self,
         request_payload: dict[str, Any],

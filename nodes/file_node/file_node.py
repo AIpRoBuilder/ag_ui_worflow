@@ -234,7 +234,6 @@ class WorkflowFileNode(GNode):
 
         return self.DEFAULT_STORAGE_DIR.resolve()
 
-    @node_main_utility
     def save_files(
         self,
         files: list[dict[str, Any]],
@@ -309,6 +308,7 @@ class WorkflowFileNode(GNode):
 
         return saved
 
+    @node_main_utility
     def build_step_output(self, saved_files: list[dict[str, Any]]) -> StepRunOutput:
         locations = [
             _safe_string(item.get("path"))
