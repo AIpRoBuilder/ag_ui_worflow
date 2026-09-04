@@ -277,7 +277,7 @@ class SpatialTemporalContractNode(GNode):
         )
 
     def _load_system_prompt(self) -> str:
-        prompt_path = Path(__file__).resolve().parent / self.SYSTEM_PROMPT_FILE
+        prompt_path = ROOT_DIR / self.SYSTEM_PROMPT_FILE
         if not prompt_path.exists():
             raise FileNotFoundError(f"system prompt not found at {prompt_path}")
         return prompt_path.read_text(encoding="utf-8").strip()
