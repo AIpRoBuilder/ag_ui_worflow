@@ -105,12 +105,29 @@ def _read_node_descriptor_prompt(descriptor_path: str) -> str:
 
 
 def _resolve_node_descriptor_path(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> Path:
-    cls = owner if isinstance(owner, type) else owner.__class__
-    module_file = Path(inspect.getfile(cls)).resolve()
-    descriptor_path = module_file.parent / descriptor_prompt_file
-    if not descriptor_path.exists():
-        raise FileNotFoundError(f"descriptor prompt not found at {descriptor_path}")
-    return descriptor_path
+    descriptor_path = Path(descriptor_prompt_file)
+    if descriptor_path.is_absolute():
+        candidate_paths = [descriptor_path]
+    else:
+        cls = owner if isinstance(owner, type) else owner.__class__
+        candidate_paths: list[Path] = []
+        for mro_cls in cls.__mro__:
+            try:
+                module_file = Path(inspect.getfile(mro_cls)).resolve()
+            except (TypeError, OSError):
+                continue
+
+            candidate = module_file.parent / descriptor_path
+            if candidate not in candidate_paths:
+                candidate_paths.append(candidate)
+
+        if not candidate_paths:
+            candidate_paths = [descriptor_path]
+
+    resolved_path = next((candidate for candidate in candidate_paths if candidate.exists()), candidate_paths[-1])
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"descriptor prompt not found at {resolved_path}")
+    return resolved_path
 
 
 def _load_node_descriptor_prompt(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> str:

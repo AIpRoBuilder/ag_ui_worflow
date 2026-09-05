@@ -243,12 +243,18 @@ class SpatialTemporalContractNode(GNode):
         if prompt_file.is_absolute():
             prompt_path = prompt_file
         else:
-            root_candidate = ROOT_DIR / prompt_file
-            if root_candidate.exists():
-                prompt_path = root_candidate
-            else:
-                module_file = Path(inspect.getfile(self.__class__)).resolve()
-                prompt_path = module_file.parent / prompt_file
+            candidates = [ROOT_DIR / prompt_file]
+            for cls in self.__class__.__mro__:
+                try:
+                    module_file = Path(inspect.getfile(cls)).resolve()
+                except (TypeError, OSError):
+                    continue
+
+                candidate = module_file.parent / prompt_file
+                if candidate not in candidates:
+                    candidates.append(candidate)
+
+            prompt_path = next((candidate for candidate in candidates if candidate.exists()), candidates[-1])
         if not prompt_path.exists():
             raise FileNotFoundError(f"system prompt not found at {prompt_path}")
         return prompt_path.read_text(encoding="utf-8").strip()
