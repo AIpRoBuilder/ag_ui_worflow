@@ -10,6 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 import importlib
+from importlib.resources import files
 import sys
 from pathlib import Path
 import tempfile
@@ -96,43 +97,36 @@ def ensure_package_parent_on_sys_path(root_dir: Path) -> Path:
 def bootstrap_package_root(current_file: str) -> Path:
     return ensure_package_parent_on_sys_path(resolve_package_root(current_file))
 
+def _resolve_node_descriptor_resource(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> tuple[str, str]:
+    cls = owner if isinstance(owner, type) else owner.__class__
+    anchor_class = next(
+        (
+            mro_cls
+            for mro_cls in cls.__mro__
+            if mro_cls.__module__.startswith("ag_ui_workflow.nodes.")
+            and hasattr(mro_cls, "DESCRIPTOR_PROMPT_FILE")
+        ),
+        cls,
+    )
+    anchor_module = importlib.import_module(anchor_class.__module__)
+    anchor_package = anchor_module.__package__ or anchor_class.__module__.rpartition(".")[0]
+    anchor_prompt_file = getattr(anchor_class, "DESCRIPTOR_PROMPT_FILE", descriptor_prompt_file)
+    return anchor_package, Path(anchor_prompt_file).name
+
+
 @lru_cache(maxsize=None)
-def _read_node_descriptor_prompt(descriptor_path: str) -> str:
-    path = Path(descriptor_path)
-    if not path.exists():
-        raise FileNotFoundError(f"descriptor prompt not found at {path}")
-    return path.read_text(encoding="utf-8").strip()
-
-
-def _resolve_node_descriptor_path(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> Path:
-    descriptor_path = Path(descriptor_prompt_file)
-    if descriptor_path.is_absolute():
-        candidate_paths = [descriptor_path]
-    else:
-        cls = owner if isinstance(owner, type) else owner.__class__
-        candidate_paths: list[Path] = []
-        for mro_cls in cls.__mro__:
-            try:
-                module_file = Path(inspect.getfile(mro_cls)).resolve()
-            except (TypeError, OSError):
-                continue
-
-            candidate = module_file.parent / descriptor_path
-            if candidate not in candidate_paths:
-                candidate_paths.append(candidate)
-
-        if not candidate_paths:
-            candidate_paths = [descriptor_path]
-
-    resolved_path = next((candidate for candidate in candidate_paths if candidate.exists()), candidate_paths[-1])
-    if not resolved_path.exists():
-        raise FileNotFoundError(f"descriptor prompt not found at {resolved_path}")
-    return resolved_path
+def _read_node_descriptor_prompt(descriptor_package: str, descriptor_prompt_name: str) -> str:
+    prompt_resource = files(descriptor_package).joinpath(descriptor_prompt_name)
+    if not prompt_resource.is_file():
+        raise FileNotFoundError(
+            f"descriptor prompt not found in package resource {descriptor_package}/{descriptor_prompt_name}"
+        )
+    return prompt_resource.read_text(encoding="utf-8").strip()
 
 
 def _load_node_descriptor_prompt(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> str:
-    descriptor_path = _resolve_node_descriptor_path(owner, descriptor_prompt_file)
-    return _read_node_descriptor_prompt(str(descriptor_path))
+    descriptor_package, descriptor_prompt_name = _resolve_node_descriptor_resource(owner, descriptor_prompt_file)
+    return _read_node_descriptor_prompt(descriptor_package, descriptor_prompt_name)
 
 
 def _load_node_descriptor_sections(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> dict[str, str]:

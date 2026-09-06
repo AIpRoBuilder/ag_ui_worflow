@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import inspect
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -239,25 +239,13 @@ class SpatialTemporalContractNode(GNode):
         )
 
     def _load_system_prompt(self) -> str:
-        prompt_file = Path(self.SYSTEM_PROMPT_FILE)
-        if prompt_file.is_absolute():
-            prompt_path = prompt_file
-        else:
-            candidates = [ROOT_DIR / prompt_file]
-            for cls in self.__class__.__mro__:
-                try:
-                    module_file = Path(inspect.getfile(cls)).resolve()
-                except (TypeError, OSError):
-                    continue
-
-                candidate = module_file.parent / prompt_file
-                if candidate not in candidates:
-                    candidates.append(candidate)
-
-            prompt_path = next((candidate for candidate in candidates if candidate.exists()), candidates[-1])
-        if not prompt_path.exists():
-            raise FileNotFoundError(f"system prompt not found at {prompt_path}")
-        return prompt_path.read_text(encoding="utf-8").strip()
+        prompt_resource_name = Path(self.SYSTEM_PROMPT_FILE).name
+        prompt_resource = files(__package__).joinpath(prompt_resource_name)
+        if not prompt_resource.is_file():
+            raise FileNotFoundError(
+                f"system prompt not found in package resource {__package__}/{prompt_resource_name}"
+            )
+        return prompt_resource.read_text(encoding="utf-8").strip()
 
     def _create_openai_client(self, api_key: str) -> Any:
         try:
