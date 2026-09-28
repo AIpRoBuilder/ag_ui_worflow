@@ -41,7 +41,7 @@ class WorkflowStepNode(GNode):
         session = get_node_workflow_session(self)
         self._set_state("running")
         raw_input = _normalize_step_input(session.pending_inputs.get(self.STEP_ID, ""))
-        if not raw_input:
+        if self.INPUT_REQUIRED and not raw_input:
             self._set_state("awaiting_input")
             return CStatus(1003, f"input required for step {self.STEP_ID}")
 

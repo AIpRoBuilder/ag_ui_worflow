@@ -47,7 +47,6 @@ packages = [
 	"ag_ui_workflow",
 	"ag_ui_workflow.nodes",
 	"ag_ui_workflow.nodes.file_node",
-	"ag_ui_workflow.nodes.operation_node",
 	"ag_ui_workflow.nodes.skill_node",
 	"ag_ui_workflow.nodes.step_node",
 ]
@@ -61,6 +60,5 @@ ag_ui_workflow = "."
 "ag_ui_workflow.nodes" = [
 	"step_node/descriptor_prompt.md",
 	"file_node/descriptor_prompt.md",
-	"operation_node/descriptor_prompt.md",
 	"skill_node/descriptor_prompt.md",
 ]
