@@ -15,11 +15,16 @@ class WorkflowEngine:
     def __init__(
         self,
         *,
-        pipeline_json_path: str,
         steps_meta: list[dict[str, Any]],
         thread_id: str,
+        pipeline_json_path: str | None = None,
+        pipeline: GPipeline | None = None,
     ) -> None:
-        self.pipeline_json_path = str(Path(pipeline_json_path).resolve())
+        if (pipeline_json_path is None) == (pipeline is None):
+            raise ValueError("exactly one of pipeline_json_path or pipeline must be provided")
+
+        self.pipeline_json_path = str(Path(pipeline_json_path).resolve()) if pipeline_json_path else None
+        self._external_pipeline = pipeline
         self.steps_meta = self._normalize_steps_meta(steps_meta)
         self._step_map = {str(step["id"]).strip(): step for step in self.steps_meta if str(step.get("id", "")).strip()}
         self.thread_id = thread_id
@@ -61,10 +66,14 @@ class WorkflowEngine:
         return normalized_steps
 
     def _build_pipeline(self) -> None:
-        self.pipeline = GPipeline()
-        status = self.pipeline.buildFromJson(self.pipeline_json_path)
-        if status.isErr():
-            raise RuntimeError(f"buildFromJson failed: {status.getInfo()}")
+        if self._external_pipeline is not None:
+            # Externally provided pipeline is expected to be built but not yet initialized.
+            self.pipeline = self._external_pipeline
+        else:
+            self.pipeline = GPipeline()
+            status = self.pipeline.buildFromJson(self.pipeline_json_path)
+            if status.isErr():
+                raise RuntimeError(f"buildFromJson failed: {status.getInfo()}")
 
         set_pipeline_id(self.pipeline, self.thread_id)
 
