@@ -9,14 +9,13 @@ from typing import Any
 
 from pydaograph import CStatus, GNode
 
-from ...session import get_node_workflow_session
+from ...params import WORKFLOW_PARAM_KEY, WorkflowParam
 from ...tools import node_main_utility
 from ...workflow_types import StepRunOutput
 from .._shared import (
     _apply_node_descriptor_attributes,
     _build_node_descriptor_meta,
     _decode_bytes_string,
-    _get_step_output_derived_keys,
     _safe_string,
     bootstrap_package_root,
 )
@@ -40,59 +39,49 @@ class WorkflowFileNode(GNode):
     def __init__(self) -> None:
         super().__init__()
         self.setName(self.STEP_ID)
-        self.setWaitForInput(False)
-        self.setInputPrompt(self.PROMPT)
-        self.setInputHandler(self._input_handler)
         _apply_node_descriptor_attributes(self, self.DESCRIPTOR_PROMPT_FILE)
 
-    def _input_handler(self, user_input: str) -> CStatus:
-        session = get_node_workflow_session(self)
-        session.pending_inputs[self.STEP_ID] = user_input
-        return CStatus()
+    def get_workflow_param(self) -> WorkflowParam:
+        """Return this node's run data after its pipeline attaches the parameter."""
+        param = self.getGParam(WORKFLOW_PARAM_KEY) if self.hasGParam(WORKFLOW_PARAM_KEY) else None
+        if not isinstance(param, WorkflowParam):
+            raise RuntimeError("Workflow param is not attached to the pipeline")
+        return param
 
     def run(self) -> CStatus:
-        session = get_node_workflow_session(self)
+        param = self.get_workflow_param()
+        if not param.can_run(self.STEP_ID, self.DEPENDENCIES):
+            return CStatus()
+
         self._set_state("running")
 
-        files, storage_override = self._parse_file_input(session.pending_inputs.get(self.STEP_ID, ""))
-        if self.INPUT_REQUIRED and not files:
-            self._set_state("awaiting_input")
-            return CStatus(1003, f"input required for step {self.STEP_ID}")
-
-        dependency_results = {
-            dep: session.step_outputs[dep]
-            for dep in self.DEPENDENCIES
-            if dep in session.step_outputs
-        }
+        files, storage_override = self._parse_file_input(param.inputs.get(self.STEP_ID, ""))
 
         try:
-            saved_files = self.save_files(files, session.state, storage_override)
+            saved_files = self.save_files(files, param.state, storage_override)
             output = self.build_step_output(saved_files)
             if not isinstance(output, StepRunOutput):
-                self._set_state("failed")
-                return CStatus(1001, f"step {self.STEP_ID} failed: build_step_output must return StepRunOutput")
+                return param.fail(self.STEP_ID, f"step {self.STEP_ID} failed: build_step_output must return StepRunOutput")
         except Exception as exc:  # pragma: no cover
-            self._set_state("failed")
-            return CStatus(1001, f"step {self.STEP_ID} failed: {exc}")
+            return param.fail(self.STEP_ID, f"step {self.STEP_ID} failed: {exc}")
 
-        session.step_outputs[self.STEP_ID] = output
-        session.step_cards[self.STEP_ID] = self.card_payload(output)
-        self._set_state("completed")
-        callback = session.submit_callbacks.pop(self.STEP_ID, None)
-        if callback is not None:
-            callback(output)
-        session.pending_inputs.pop(self.STEP_ID, None)
+        param.complete(self.STEP_ID, output, self.card_payload(output))
         return CStatus()
 
     def _set_state(self, state: str) -> None:
-        session = get_node_workflow_session(self)
-        session.step_states[self.STEP_ID] = state
+        self.get_workflow_param().set_state(self.STEP_ID, state)
 
     def card_payload(self, output: StepRunOutput) -> dict[str, Any]:
         return output.card
 
     def get_derived_keys(self) -> list[str]:
-        return _get_step_output_derived_keys(self, self.STEP_ID)
+        try:
+            output = self.get_workflow_param().outputs.get(self.STEP_ID)
+        except RuntimeError:
+            return []
+        if output is None or not isinstance(output.derived, dict):
+            return []
+        return list(output.derived)
 
     def _parse_file_input(self, raw_input: Any) -> tuple[list[dict[str, Any]], str | None]:
         parsed: Any = raw_input

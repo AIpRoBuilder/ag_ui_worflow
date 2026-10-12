@@ -13,12 +13,6 @@ import importlib
 from importlib.resources import files
 import sys
 from pathlib import Path
-import tempfile
-from functools import lru_cache
-import inspect
-
-from ..services import workflow_service_registry
-from ..session import get_node_workflow_session
 
 
 _UPLOAD_DIR = Path(tempfile.gettempdir()) / "meta_agent_uploads"
@@ -260,19 +254,6 @@ def _normalize_step_input(raw_input: Any) -> str:
         return json.dumps(parsed, ensure_ascii=False)
 
     return _safe_string(parsed)
-
-
-def _get_step_output_derived_keys(owner: Any, step_id: str) -> list[str]:
-    try:
-        session = get_node_workflow_session(owner)
-    except RuntimeError:
-        return []
-
-    output = session.step_outputs.get(step_id)
-    if output is None or not isinstance(output.derived, dict):
-        return []
-    return list(output.derived.keys())
-
 
 def _workflow_root_dir() -> Path:
     return Path(__file__).resolve().parent.parent
