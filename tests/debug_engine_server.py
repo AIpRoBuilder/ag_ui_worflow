@@ -13,6 +13,7 @@ second request, with the same `requestId`, gives the node its input and the same
 on from where it stopped. tests/debug_engine_client.py makes both calls.
 """
 import importlib.util
+import json
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -89,9 +90,16 @@ class GreetNode(WorkflowStepNode):
 
 
 NODES = (AskNameNode, GreetNode)
+NODE_CLASSES = {node.STEP_ID: node for node in NODES}
+PIPELINE_JSON = json.dumps({
+    "nodes": [
+        {"name": "ask_name"},
+        {"name": "greet", "depends": ["ask_name"]},
+    ],
+})
 
 # A run that waits for input keeps its pipeline, so the pool size caps the waiting runs.
-POOL = WorkflowPipelinePool(nodes=NODES, size=4)
+POOL = WorkflowPipelinePool(pipeline_json=PIPELINE_JSON, node_classes=NODE_CLASSES, size=4)
 ENGINE = WorkflowEngine(graph_config_id="demo", steps_meta=[n.step_meta() for n in NODES], pool=POOL)
 
 

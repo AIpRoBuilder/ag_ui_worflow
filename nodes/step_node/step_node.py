@@ -88,9 +88,6 @@ class WorkflowStepNode(GNode):
     ) -> StepRunOutput:
         raise NotImplementedError()
 
-    def clone(self):
-        return self
-
     @classmethod
     def meta_node_kind(cls) -> str:
         return "WorkflowStepNode"

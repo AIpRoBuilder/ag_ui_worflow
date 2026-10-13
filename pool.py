@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from threading import Condition
 from typing import Iterator, Sequence
 
-from pydaograph import CStatus, GPipeline, GPipelineManager
+from pydaograph import CStatus, GElement, GPipeline, GPipelineManager
 
 from .params import WORKFLOW_PARAM_KEY, WorkflowParam
 
@@ -17,18 +18,22 @@ def _check(status: CStatus, operation: str) -> None:
 class WorkflowPipelinePool:
     """Fixed set of initialized pipelines handed out one run at a time.
 
-    Pipelines come from a graph JSON string, from ready-built ``pipelines``, or from ``nodes``:
-    node classes (each with ``STEP_ID`` and ``DEPENDENCIES``, listed after their dependencies)
-    that the pool instantiates once per pipeline. ``GPipelineManager`` owns the free/used lists;
-    a ``Condition`` adds waiting for a free slot and coordinated shutdown. Build the pool once
-    and keep it for the lifetime of the process: repeatedly creating and destroying pipelines is
-    not supported by the pydaograph bindings.
+    Pipelines come from a graph JSON string with an explicit ``node_classes`` mapping,
+    from ready-built ``pipelines``, or from ``nodes``: node classes (each with ``STEP_ID``
+    and ``DEPENDENCIES``, listed after their dependencies). JSON mappings use node names
+    as keys and classes or zero-argument factories as values; each must create a fresh
+    ``GElement``. The native builder retains these instances without registration or cloning.
+    Global node registration and registry-based JSON loading are not supported.
+    ``GPipelineManager`` owns the free/used lists; a ``Condition`` adds waiting for a free
+    slot and coordinated shutdown. Build the pool once and keep it for the lifetime of the
+    process to reuse initialized nodes and parameters across requests.
     """
 
     def __init__(
         self,
         *,
         pipeline_json: str | None = None,
+        node_classes: Mapping[str, Callable[[], GElement]] | None = None,
         pipelines: Sequence[GPipeline] | None = None,
         nodes: Sequence[type] | None = None,
         size: int = 1,
@@ -39,10 +44,17 @@ class WorkflowPipelinePool:
             raise ValueError("size must be a positive integer")
         if pipeline_json is not None and not pipeline_json.strip():
             raise ValueError("pipeline_json must be a non-empty JSON string")
+        if pipeline_json is not None and node_classes is None:
+            raise ValueError("pipeline_json requires node_classes; global node registration is not supported")
+        if node_classes is not None and pipeline_json is None:
+            raise ValueError("node_classes requires pipeline_json")
+        # The pybind overload accepts a dict, not an arbitrary Mapping. Snapshot it
+        # once so every pooled pipeline is constructed from the same class map.
+        class_map = dict(node_classes) if node_classes is not None else {}
 
         self._manager: GPipelineManager | None = GPipelineManager()
         self._params: dict[GPipeline, WorkflowParam] = {}
-        self._nodes: list[dict[str, object]] = []  # pydaograph does not keep the Python node objects alive
+        self._nodes: list[dict[str, object]] = []  # programmatically built nodes, kept until shutdown
         self._condition = Condition()
         self._active = 0
         self._closing = False
@@ -53,7 +65,7 @@ class WorkflowPipelinePool:
             if pipeline_json is not None:
                 pipelines = [GPipeline() for _ in range(size)]
                 for pipeline in pipelines:
-                    _check(pipeline.buildFromJsonStr(pipeline_json), "buildFromJsonStr")
+                    _check(pipeline.buildFromJsonStr(pipeline_json, class_map), "buildFromJsonStr")
             elif nodes is not None:
                 pipelines = [self._build(nodes) for _ in range(size)]
 

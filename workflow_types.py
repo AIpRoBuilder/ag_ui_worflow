@@ -8,7 +8,7 @@ from ag_ui.core import InputContent, UserMessage
 
 
 UserInput = str | UserMessage | list[InputContent]
-StepRunInput = UserInput | dict[str, Any] | list[Any] | None
+StepRunInput = UserInput | bytes | bytearray | dict[str, Any] | list[Any] | None
 
 
 @dataclass(slots=True)

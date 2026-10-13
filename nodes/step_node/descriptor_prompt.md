@@ -16,6 +16,7 @@
 
 ## Implementation Guide
 - Keep `STEP_ID` stable because it is the key for step inputs, outputs, and workflow metadata.
+- For JSON pipelines, map the node's JSON `name` to its class in `WorkflowPipelinePool(node_classes=..., pipeline_json=...)`. Match `name` to `STEP_ID` and ordinary output-producing `depends` to `DEPENDENCIES`. Native condition edges may differ: `DEPENDENCIES` must require only outputs that actually exist, not an unreported condition output or all alternative branch outputs. Each class or zero-argument factory must create a fresh node. Global node registration and registry `clone()` hooks are not supported; the explicit class map is required.
 - Treat `user_input` as normalized text, a resolved file path, or an empty string for automatic operations.
 - Validate required dependency data inside `process_input` and raise a clear error if prerequisites are missing.
 - Build concise `card` fields for UI display and richer `derived` fields for machine-readable outputs.

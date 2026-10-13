@@ -3,6 +3,7 @@
     python3.10 tests/debug_engine.py
 """
 import importlib.util
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -74,10 +75,17 @@ class GreetNode(WorkflowStepNode):
 
 
 NODES = (AskNameNode, GreetNode)
+NODE_CLASSES = {node.STEP_ID: node for node in NODES}
+PIPELINE_JSON = json.dumps({
+    "nodes": [
+        {"name": "ask_name"},
+        {"name": "greet", "depends": ["ask_name"]},
+    ],
+})
 
 
 def main() -> None:
-    with WorkflowPipelinePool(nodes=NODES) as pool:
+    with WorkflowPipelinePool(pipeline_json=PIPELINE_JSON, node_classes=NODE_CLASSES) as pool:
         engine = WorkflowEngine(graph_config_id="demo", steps_meta=[n.step_meta() for n in NODES], pool=pool)
         request_id = str(uuid.uuid4())
         try:

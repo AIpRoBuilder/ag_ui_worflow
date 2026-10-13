@@ -215,9 +215,6 @@ class WorkflowSkillNode(GNode):
             f"skill_using:\n{self.skill_using}\n\nskill_examples:\n{self.skill_examples}"
         )
 
-    def clone(self):
-        return self
-
     @classmethod
     def meta_node_kind(cls) -> str:
         return "WorkflowSkillNode"

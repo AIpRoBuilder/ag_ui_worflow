@@ -1,5 +1,6 @@
 """Run with: python3.10 -m unittest discover -s tests -p test_wait_functions.py."""
 from concurrent.futures import ThreadPoolExecutor
+import json
 from pathlib import Path
 import runpy
 from threading import Event
@@ -76,7 +77,17 @@ class WaitFunctionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.nodes = (AutoNode, CallbackNode, FinishNode)
-        cls.pool = WorkflowPipelinePool(nodes=cls.nodes, size=2)
+        graph_json = json.dumps({
+            "nodes": [
+                {"name": node.STEP_ID, "depends": node.DEPENDENCIES}
+                for node in reversed(cls.nodes)
+            ],
+        })
+        cls.pool = WorkflowPipelinePool(
+            pipeline_json=graph_json,
+            node_classes={node.STEP_ID: node for node in cls.nodes},
+            size=2,
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -212,6 +223,11 @@ class WaitFunctionTest(unittest.TestCase):
 
 class NodeParamAccessTest(unittest.TestCase):
     bases = (WorkflowStepNode, WorkflowFileNode, WorkflowSkillNode)
+
+    def test_base_nodes_have_no_global_registry_clone_hooks(self):
+        for base in self.bases:
+            with self.subTest(base=base.__name__):
+                self.assertNotIn("clone", base.__dict__)
 
     def test_each_base_owns_lookup_method(self):
         param = WorkflowParam()

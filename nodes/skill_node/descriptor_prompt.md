@@ -14,6 +14,7 @@
 - Return a `StepRunOutput` for downstream workflow consumption.
 
 ## Implementation Guide
+- For JSON pipelines, map the node's JSON `name` to its class in `WorkflowPipelinePool(node_classes=..., pipeline_json=...)`. Match `name` to `STEP_ID` and ordinary output-producing `depends` to `DEPENDENCIES`. Native condition edges may differ: `DEPENDENCIES` must require only outputs that actually exist, not an unreported condition output or all alternative branch outputs. Each class or zero-argument factory must create a fresh node. Global node registration and registry `clone()` hooks are not supported; the explicit class map is required.
 - Point `SKILL_DIR` at the directory containing `skill.md` unless you need a custom filename via `SKILL_MD_PATH`.
 - Keep installation commands in `skill.md` idempotent because initialization may happen more than once across processes.
 - Write `process_operation` so it can use either the two-argument or three-argument signature supported by the base class.
