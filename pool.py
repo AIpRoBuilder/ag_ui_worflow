@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from threading import Condition
 from typing import Iterator, Sequence
 
@@ -15,6 +16,17 @@ def _check(status: CStatus, operation: str) -> None:
         raise RuntimeError(f"{operation} failed: {status.getInfo()}")
 
 
+@dataclass(eq=False)
+class _Generation:
+    """The pipelines built from one graph and the leases currently out on them."""
+
+    manager: GPipelineManager
+    params: dict[GPipeline, WorkflowParam] = field(default_factory=dict)
+    nodes: list[dict[str, object]] = field(default_factory=list)  # programmatically built nodes, kept until destroyed
+    active: int = 0
+    initialized: bool = False
+
+
 class WorkflowPipelinePool:
     """Fixed set of initialized pipelines handed out one run at a time.
 
@@ -26,7 +38,8 @@ class WorkflowPipelinePool:
     Global node registration and registry-based JSON loading are not supported.
     ``GPipelineManager`` owns the free/used lists; a ``Condition`` adds waiting for a free
     slot and coordinated shutdown. Build the pool once and keep it for the lifetime of the
-    process to reuse initialized nodes and parameters across requests.
+    process to reuse initialized nodes and parameters across requests. ``reload`` replaces the
+    graph without interrupting leases: they finish on the pipelines they hold.
     """
 
     def __init__(
@@ -38,6 +51,58 @@ class WorkflowPipelinePool:
         nodes: Sequence[type] | None = None,
         size: int = 1,
     ) -> None:
+        self._condition = Condition()
+        self._closing = False
+        self._closed = False
+        self._retired: list[_Generation] = []  # replaced graphs that still have leases out
+        self._current: _Generation | None = self._create(pipeline_json, node_classes, pipelines, nodes, size)
+        self._size = len(self._current.params)
+
+    @property
+    def closed(self) -> bool:
+        return self._closing or self._closed
+
+    @property
+    def _active(self) -> int:
+        current = [self._current] if self._current is not None else []
+        return sum(generation.active for generation in (*self._retired, *current))
+
+    def reload(
+        self,
+        *,
+        pipeline_json: str | None = None,
+        node_classes: Mapping[str, Callable[[], GElement]] | None = None,
+        pipelines: Sequence[GPipeline] | None = None,
+        nodes: Sequence[type] | None = None,
+        size: int | None = None,
+    ) -> None:
+        """Serve new leases from a freshly built graph; leases already out finish on the old one.
+
+        Takes the same sources as the constructor, and keeps the current size unless ``size``
+        is given. If the new graph fails to build, the current one keeps serving.
+        """
+        generation = self._create(
+            pipeline_json, node_classes, pipelines, nodes, self._size if size is None else size
+        )
+        with self._condition:
+            if not self.closed:
+                self._retired.append(self._current)
+                self._current = generation
+                self._size = len(generation.params)
+                self._condition.notify_all()  # waiters on a full old graph refetch from the new one
+                self._reap()
+                return
+        self._destroy(generation)
+        raise RuntimeError("workflow pipeline pool is closed")
+
+    def _create(
+        self,
+        pipeline_json: str | None,
+        node_classes: Mapping[str, Callable[[], GElement]] | None,
+        pipelines: Sequence[GPipeline] | None,
+        nodes: Sequence[type] | None,
+        size: int,
+    ) -> _Generation:
         if sum(source is not None for source in (pipeline_json, pipelines, nodes)) != 1:
             raise ValueError("exactly one of pipeline_json, pipelines or nodes must be provided")
         if pipelines is None and (not isinstance(size, int) or size < 1):
@@ -52,41 +117,31 @@ class WorkflowPipelinePool:
         # once so every pooled pipeline is constructed from the same class map.
         class_map = dict(node_classes) if node_classes is not None else {}
 
-        self._manager: GPipelineManager | None = GPipelineManager()
-        self._params: dict[GPipeline, WorkflowParam] = {}
-        self._nodes: list[dict[str, object]] = []  # programmatically built nodes, kept until shutdown
-        self._condition = Condition()
-        self._active = 0
-        self._closing = False
-        self._closed = False
-        self._initialized = False
-
+        generation = _Generation(GPipelineManager())
         try:
             if pipeline_json is not None:
                 pipelines = [GPipeline() for _ in range(size)]
                 for pipeline in pipelines:
                     _check(pipeline.buildFromJsonStr(pipeline_json, class_map), "buildFromJsonStr")
             elif nodes is not None:
-                pipelines = [self._build(nodes) for _ in range(size)]
+                pipelines = [self._build(nodes, generation) for _ in range(size)]
 
             # Externally provided pipelines are expected to be built but not initialized.
             for pipeline in pipelines:
                 param = WorkflowParam()
                 _check(pipeline.createGParam(param, WORKFLOW_PARAM_KEY), "createGParam")
-                self._params[pipeline] = param
-                _check(self._manager.add(pipeline), "manager.add")
+                generation.params[pipeline] = param
+                _check(generation.manager.add(pipeline), "manager.add")
 
-            _check(self._manager.init(), "manager.init")
-            self._initialized = True
+            _check(generation.manager.init(), "manager.init")
+            generation.initialized = True
         except Exception:
-            self.close()
+            self._destroy(generation)
             raise
+        return generation
 
-    @property
-    def closed(self) -> bool:
-        return self._closing or self._closed
-
-    def _build(self, node_classes: Sequence[type]) -> GPipeline:
+    @staticmethod
+    def _build(node_classes: Sequence[type], generation: _Generation) -> GPipeline:
         pipeline, built = GPipeline(), {}
         for cls in node_classes:
             node = built[cls.STEP_ID] = cls()
@@ -94,8 +149,23 @@ class WorkflowPipelinePool:
                 pipeline.registerGElement(node, {built[dep] for dep in cls.DEPENDENCIES}, cls.STEP_ID),
                 f"register {cls.STEP_ID}",
             )
-        self._nodes.append(built)
+        generation.nodes.append(built)
         return pipeline
+
+    @staticmethod
+    def _destroy(generation: _Generation) -> None:
+        if generation.initialized:
+            _check(generation.manager.destroy(), "manager.destroy")
+            generation.initialized = False
+        _check(generation.manager.clear(), "manager.clear")
+        generation.params.clear()
+        generation.nodes.clear()
+
+    def _reap(self) -> None:
+        """Destroy replaced graphs with no lease left. Caller holds the condition."""
+        for generation in [g for g in self._retired if g.active == 0]:
+            self._destroy(generation)
+            self._retired.remove(generation)
 
     @contextmanager
     def lease(self) -> Iterator[tuple[GPipeline, WorkflowParam]]:
@@ -108,24 +178,29 @@ class WorkflowPipelinePool:
             while True:
                 if self.closed:
                     raise RuntimeError("workflow pipeline pool is closed")
-                pipeline = self._manager.fetch()
+                generation = self._current
+                pipeline = generation.manager.fetch()
                 if pipeline is not None:
-                    self._active += 1
+                    generation.active += 1
                     break
-                # fetch() does not block.
+                # fetch() does not block. reload() also wakes this wait.
                 self._condition.wait()
 
-        param = self._params[pipeline]
+        param = generation.params[pipeline]
         try:
             yield pipeline, param
         finally:
             param.clear()
             with self._condition:
                 try:
-                    _check(self._manager.release(pipeline), "manager.release")
+                    # Back to the graph it came from, even if that one has been replaced since.
+                    _check(generation.manager.release(pipeline), "manager.release")
                 finally:
-                    self._active -= 1
-                    self._condition.notify_all()
+                    generation.active -= 1
+                    try:
+                        self._reap()
+                    finally:
+                        self._condition.notify_all()
 
     def close(self) -> None:
         """Reject new requests, wait for active leases, then destroy the pipelines."""
@@ -140,19 +215,15 @@ class WorkflowPipelinePool:
                 self._condition.wait()
 
             try:
-                if self._initialized:
-                    _check(self._manager.destroy(), "manager.destroy")
-                    self._initialized = False
-                _check(self._manager.clear(), "manager.clear")
+                self._reap()
+                self._destroy(self._current)
             except Exception:
                 self._closing = False
                 self._condition.notify_all()
                 raise
 
             # The manager keeps the pipelines alive until its wrapper is released.
-            self._params.clear()
-            self._manager = None
-            self._nodes.clear()
+            self._current = None
             self._closed = True
             self._condition.notify_all()
 

@@ -99,6 +99,18 @@ An explicit empty map is valid only for an empty graph; every declared node need
 entry, with no fallback to a global registry. `nodes=` constructs the supplied classes
 directly; `registerGElement` attaches instances to that pipeline, not to a global registry.
 
+To ship a new graph without interrupting running requests, call `pool.reload(...)` with the
+same sources as the constructor (`pipeline_json=` and `node_classes=`, `nodes=` or `pipelines=`):
+
+```python
+pool.reload(pipeline_json=new_graph_json, node_classes=new_node_classes)
+```
+
+The new pipelines are built first, so a failed build leaves the current graph serving. Leases
+already out, including runs paused for input, finish on the graph they started on, which is
+destroyed with its last lease. New and queued requests use the new graph. An engine needs no
+change when step ids, dependencies and metadata stay the same.
+
 For workflow node subclasses, JSON `name` must match `STEP_ID`, and JSON `depends`
 should match `DEPENDENCIES` for ordinary output-producing dependencies.
 JSON declaration order need not be topological. Optional `loop` controls native run

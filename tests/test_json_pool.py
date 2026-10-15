@@ -104,7 +104,7 @@ class PoolBuilderArgumentTest(unittest.TestCase):
             STEP_ID, DEPENDENCIES = "last", ["first"]
 
         with WorkflowPipelinePool(nodes=[First, Last]) as pool:
-            first, last = pool._nodes[0]["first"], pool._nodes[0]["last"]
+            first, last = pool._current.nodes[0]["first"], pool._current.nodes[0]["last"]
             calls = self.pipeline.registerGElement.call_args_list
             self.assertEqual(calls[0].args, (first, set(), "first"))
             self.assertEqual(calls[1].args, (last, {first}, "last"))
@@ -300,6 +300,92 @@ class JsonPoolNativeTest(unittest.TestCase):
                         assert result.outputs["merge"].derived == {"selected": name}
                 finally:
                     engine.close()
+        ''')
+
+    def test_reload_keeps_leases_on_their_graph_and_serves_new_leases_from_the_new_one(self):
+        self.run_workflow_example('''
+            import json
+            import runpy
+            from threading import Thread
+            from pydaograph import CStatus, GNode
+            runpy.run_path("tests/debug_engine.py")
+            from ag_ui_workflow import WorkflowPipelinePool
+            from ag_ui_workflow.params import WORKFLOW_PARAM_KEY
+
+            def graph(label):
+                class Labelled(GNode):
+                    def run(self):
+                        self.getGParam(WORKFLOW_PARAM_KEY).state["graph"] = label
+                        return CStatus()
+                return json.dumps({"nodes": [{"name": "step"}]}), {"step": Labelled}
+
+            def run_once(pool):
+                with pool.lease() as (pipeline, param):
+                    assert pipeline.run().isOK()
+                    return pipeline, param.state["graph"]
+
+            old_json, old_classes = graph("old")
+            new_json, new_classes = graph("new")
+            with WorkflowPipelinePool(pipeline_json=old_json, node_classes=old_classes) as pool:
+                got = []
+
+                def waiter():
+                    got.append(run_once(pool))
+
+                with pool.lease() as (held, held_param):
+                    waiting = Thread(target=waiter)
+                    waiting.start()
+                    waiting.join(0.3)
+                    assert waiting.is_alive(), "the only pipeline is leased"
+
+                    # A failed build leaves the serving graph and the waiter untouched.
+                    try:
+                        pool.reload(pipeline_json=old_json, node_classes=old_classes, size=0)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError("invalid size was accepted")
+                    assert not pool._retired and waiting.is_alive()
+
+                    pool.reload(pipeline_json=new_json, node_classes=new_classes)
+                    waiting.join(10)
+                    assert not waiting.is_alive(), "waiter must move to the new graph"
+                    assert got[0][1] == "new" and got[0][0] is not held
+                    assert len(pool._retired) == 1
+
+                    assert held.run().isOK()
+                    assert held_param.state["graph"] == "old", "lease keeps the graph it started on"
+                assert pool._retired == [], "old graph is destroyed with its last lease"
+                assert pool._active == 0
+                assert run_once(pool)[1] == "new"
+        ''')
+
+    def test_reload_after_close_is_rejected_and_close_waits_for_old_leases(self):
+        self.run_workflow_example('''
+            import json
+            import runpy
+            from threading import Thread
+            from pydaograph import CStatus, GNode
+            runpy.run_path("tests/debug_engine.py")
+            from ag_ui_workflow import WorkflowPipelinePool
+
+            graph = json.dumps({"nodes": [{"name": "step"}]})
+            classes = {"step": GNode}
+            pool = WorkflowPipelinePool(pipeline_json=graph, node_classes=classes)
+            with pool.lease():
+                pool.reload(pipeline_json=graph, node_classes=classes)
+                closing = Thread(target=pool.close)
+                closing.start()
+                closing.join(0.3)
+                assert closing.is_alive(), "close must wait for the lease on the replaced graph"
+            closing.join(10)
+            assert not closing.is_alive() and pool.closed
+            try:
+                pool.reload(pipeline_json=graph, node_classes=classes)
+            except RuntimeError as error:
+                assert "closed" in str(error)
+            else:
+                raise AssertionError("reload on a closed pool was accepted")
         ''')
 
 
