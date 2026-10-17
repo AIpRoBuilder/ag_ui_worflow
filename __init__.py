@@ -1,7 +1,6 @@
 from .engine import RunResult, WorkflowEngine
 from .nodes import (
     WorkflowFileNode,
-    WorkflowSkillNode,
     WorkflowStepNode,
 )
 from .params import WorkflowParam
@@ -22,7 +21,6 @@ __all__ = [
     "WorkflowServiceRecord",
     "WorkflowServiceRegistryCenter",
     "WorkflowStepNode",
-    "WorkflowSkillNode",
     "WorkflowFileNode",
     "WorkflowStepDefinition",
     "workflow_service_registry",

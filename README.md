@@ -132,7 +132,7 @@ a completion watcher collects its final status. It does not install, wrap, or in
 functions. A subclass registers its own `setWaitFunc` callback: returning `False` pauses
 native execution before the node runs, and `True` releases it.
 
-Base step, file, skill, and condition nodes install **no** wait callback.
+Base step, file, and condition nodes install **no** wait callback.
 `INPUT_REQUIRED` is UI metadata only. If a subclass needs to wait, define a
 `wait_function(self) -> bool` method inside the subclass and register it with
 `self.setWaitFunc(self.wait_function)`. To make the engine

@@ -17,7 +17,6 @@ from ag_ui_workflow import (  # noqa: E402
     WorkflowFileNode,
     WorkflowParam,
     WorkflowPipelinePool,
-    WorkflowSkillNode,
     WorkflowStepNode,
 )
 from ag_ui_workflow.params import WORKFLOW_PARAM_KEY  # noqa: E402
@@ -222,7 +221,7 @@ class WaitFunctionTest(unittest.TestCase):
 
 
 class NodeParamAccessTest(unittest.TestCase):
-    bases = (WorkflowStepNode, WorkflowFileNode, WorkflowSkillNode)
+    bases = (WorkflowStepNode, WorkflowFileNode)
 
     def test_base_nodes_have_no_global_registry_clone_hooks(self):
         for base in self.bases:

@@ -24,7 +24,7 @@ _NODE_DESCRIPTOR_SECTIONS = {
     "Example": "example",
 }
 
-def parse_skill_md(text: str) -> dict[str, str]:
+def parse_markdown_sections(text: str) -> dict[str, str]:
     """Parse a markdown document into a dict keyed by H2 section name.
 
     Only level-2 headings (``## Heading``) are used as section boundaries.
@@ -52,25 +52,6 @@ def parse_skill_md(text: str) -> dict[str, str]:
         sections[current_key] = "".join(current_lines).strip()
 
     return sections
-
-
-def extract_skill_commands(section_text: str) -> list[str]:
-    commands: list[str] = []
-    in_block = False
-
-    for line in section_text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            in_block = not in_block
-            continue
-        if not in_block:
-            continue
-
-        command = stripped.lstrip("$ ").strip()
-        if command:
-            commands.append(command)
-
-    return commands
 
 
 def resolve_package_root(current_file: str) -> Path:
@@ -124,7 +105,7 @@ def _load_node_descriptor_prompt(owner: Any, descriptor_prompt_file: str = "desc
 
 
 def _load_node_descriptor_sections(owner: Any, descriptor_prompt_file: str = "descriptor_prompt.md") -> dict[str, str]:
-    sections = parse_skill_md(_load_node_descriptor_prompt(owner, descriptor_prompt_file))
+    sections = parse_markdown_sections(_load_node_descriptor_prompt(owner, descriptor_prompt_file))
     return {
         mapped_key: sections.get(section_name, "").strip()
         for section_name, mapped_key in _NODE_DESCRIPTOR_SECTIONS.items()
