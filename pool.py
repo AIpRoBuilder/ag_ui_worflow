@@ -8,6 +8,7 @@ from typing import Iterator, Sequence
 
 from pydaograph import CStatus, GElement, GPipeline, GPipelineManager
 
+from .graph import GraphSpec
 from .params import WORKFLOW_PARAM_KEY, WorkflowParam
 
 
@@ -94,6 +95,10 @@ class WorkflowPipelinePool:
                 return
         self._destroy(generation)
         raise RuntimeError("workflow pipeline pool is closed")
+
+    def reload_graph(self, spec: GraphSpec, *, size: int | None = None) -> None:
+        """Serve new leases from ``spec``; same semantics as :meth:`reload`."""
+        self.reload(pipeline_json=spec.pipeline_json, node_classes=spec.node_classes, size=size)
 
     def _create(
         self,

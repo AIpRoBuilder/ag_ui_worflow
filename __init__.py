@@ -1,4 +1,5 @@
 from .engine import RunResult, WorkflowEngine
+from .graph import GraphSpec, merge_graphs, rebind_step_class
 from .nodes import (
     WorkflowFileNode,
     WorkflowStepNode,
@@ -10,6 +11,7 @@ from .streaming import event_to_dict, to_sse_payload
 from .workflow_types import StepRunInput, StepRunOutput, UserInput, WorkflowConditionDefinition, WorkflowStepDefinition
 
 __all__ = [
+    "GraphSpec",
     "RunResult",
     "StepRunOutput",
     "StepRunInput",
@@ -26,4 +28,6 @@ __all__ = [
     "workflow_service_registry",
     "event_to_dict",
     "to_sse_payload",
+    "merge_graphs",
+    "rebind_step_class",
 ]

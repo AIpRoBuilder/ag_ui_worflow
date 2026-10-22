@@ -111,6 +111,30 @@ already out, including runs paused for input, finish on the graph they started o
 destroyed with its last lease. New and queued requests use the new graph. An engine needs no
 change when step ids, dependencies and metadata stay the same.
 
+To combine two graph definitions, merge them before building a pipeline. pydaograph has no
+runtime pipeline merge: elements belong to one pipeline and cannot be moved. `GraphSpec`
+wraps one graph's JSON nodes, class map and optional `steps_meta`; `merge_graphs` rewrites
+names and dependencies, validates that the result is acyclic, and adds `bridges` from a
+right-side node to the left-side nodes it must wait for:
+
+```python
+from ag_ui_workflow import GraphSpec, merge_graphs
+
+left = GraphSpec.from_json(left_json, left_classes, steps_meta=left_meta)
+right = GraphSpec.from_json(right_json, right_classes, steps_meta=right_meta)
+
+merged = merge_graphs(left, right, bridges={"right_entry": ["left_exit"]})
+pool.reload_graph(merged)  # or pool.reload(pipeline_json=merged.pipeline_json,
+                           #                 node_classes=merged.node_classes)
+engine = WorkflowEngine(graph_config_id="merged", steps_meta=merged.steps_meta, pool=pool)
+```
+
+If both graphs reuse node names, pass `rename=lambda side, name: f"{side}:{name}"`.
+A renamed `WorkflowStepNode` must also change its class-level identity, and bridge
+dependencies must be visible to `param.can_run(...)`: create a subclass with
+`rebind_step_class(cls, step_id="new", dependencies=[...])`. Names must stay unique,
+and every node needs a factory because the JSON builder constructs each element fresh.
+
 For workflow node subclasses, JSON `name` must match `STEP_ID`, and JSON `depends`
 should match `DEPENDENCIES` for ordinary output-producing dependencies.
 JSON declaration order need not be topological. Optional `loop` controls native run
