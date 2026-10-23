@@ -43,9 +43,23 @@ class WorkflowParam(GParam):
         """Pauses reported by user-defined wait functions, in step insertion order."""
         return [step_id for step_id, state in self.states.items() if state == "awaiting_input"]
 
-    def can_run(self, step_id: str, dependencies: Iterable[str]) -> bool:
-        """True when the step is not finished yet and all its dependencies are."""
-        return step_id not in self.outputs and all(dep in self.outputs for dep in dependencies)
+    def can_run(
+        self,
+        step_id: str,
+        dependencies: Iterable[str],
+        *,
+        repeat: bool = False,
+    ) -> bool:
+        """True when the step can run: dependencies are finished and, unless
+        ``repeat``, this step has not already produced an output.
+
+        Native graph loops re-enter a step without clearing ``outputs``.
+        Repeatable steps pass ``repeat=True`` so each pass executes again and
+        overwrites its output.
+        """
+        if not repeat and step_id in self.outputs:
+            return False
+        return all(dep in self.outputs for dep in dependencies)
 
     def set_state(self, step_id: str, state: str) -> None:
         """Report a step's state; wait functions use awaiting_input/running."""

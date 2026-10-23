@@ -1,6 +1,7 @@
 """GraphSpec composition: merge graph definitions before building one pipeline."""
 import copy
 import importlib
+import json
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -29,12 +30,13 @@ class RecordingNode(GNode):
         return CStatus()
 
 
-def make_spec(nodes, *, steps_meta=()):
+def make_spec(nodes, *, steps_meta=(), loop=1):
     """Build a spec whose nodes all use the same recording node class."""
     return GraphSpec(
         nodes=nodes,
         classes={node["name"]: RecordingNode for node in nodes},
         steps_meta=list(steps_meta),
+        loop=loop,
     )
 
 
@@ -167,6 +169,101 @@ class MergeGraphsTest(unittest.TestCase):
             GraphSpec.from_json("{", {"a": RecordingNode})
         with self.assertRaisesRegex(ValueError, "nodes"):
             GraphSpec.from_json('{"node": []}', {"a": RecordingNode})
+
+
+class GraphLoopTest(unittest.TestCase):
+    def setUp(self):
+        RecordingNode.order = []
+
+    def test_looped_graph_materializes_as_one_region(self):
+        spec = make_spec(
+            [{"name": "a"}, {"name": "b", "depends": ["a"]}],
+            loop=3,
+        )
+
+        self.assertEqual(
+            json.loads(spec.pipeline_json),
+            {"nodes": [{"name": "__pipeline__", "meta_type": "GRegion", "loop": 3}]},
+        )
+
+        pipeline = GPipeline()
+        status = pipeline.buildFromJsonStr(spec.pipeline_json, spec.node_classes)
+        self.assertTrue(status.isOK(), status.getInfo())
+        status = pipeline.process(1)
+        self.assertTrue(status.isOK(), status.getInfo())
+        self.assertEqual(RecordingNode.order, ["a", "b", "a", "b", "a", "b"])
+
+    def test_merge_wraps_looped_left_side_and_bridges_to_the_group(self):
+        left = make_spec(
+            [{"name": "a"}, {"name": "b", "depends": ["a"]}],
+            loop=3,
+        )
+        right = make_spec([{"name": "c"}])
+
+        merged = merge_graphs(left, right, bridges={"c": ["b"]})
+
+        self.assertEqual(node_names(merged), ["__left_pipeline__", "c"])
+        self.assertEqual(node_by_name(merged, "c")["depends"], ["__left_pipeline__"])
+
+        pipeline = GPipeline()
+        status = pipeline.buildFromJsonStr(merged.pipeline_json, merged.node_classes)
+        self.assertTrue(status.isOK(), status.getInfo())
+        status = pipeline.process(1)
+        self.assertTrue(status.isOK(), status.getInfo())
+        self.assertEqual(RecordingNode.order, ["a", "b", "a", "b", "a", "b", "c"])
+
+    def test_merge_wraps_looped_right_side_and_attaches_bridge_to_the_group(self):
+        left = make_spec([{"name": "a"}])
+        right = make_spec([{"name": "c"}], loop=2)
+
+        merged = merge_graphs(left, right, bridges={"c": ["a"]})
+
+        self.assertEqual(node_names(merged), ["a", "__right_pipeline__"])
+        self.assertEqual(node_by_name(merged, "__right_pipeline__")["depends"], ["a"])
+
+        pipeline = GPipeline()
+        status = pipeline.buildFromJsonStr(merged.pipeline_json, merged.node_classes)
+        self.assertTrue(status.isOK(), status.getInfo())
+        status = pipeline.process(1)
+        self.assertTrue(status.isOK(), status.getInfo())
+        self.assertEqual(RecordingNode.order, ["a", "c", "c"])
+
+    def test_loop_override_and_metadata_keep_real_step_ids(self):
+        left = make_spec(
+            [{"name": "a"}, {"name": "b", "depends": ["a"]}],
+            steps_meta=[
+                {"id": "a", "dependencies": []},
+                {"id": "b", "dependencies": ["a"]},
+            ],
+        )
+        right = make_spec(
+            [{"name": "c"}],
+            steps_meta=[{"id": "c", "dependencies": []}],
+        )
+
+        merged = merge_graphs(
+            left,
+            right,
+            bridges={"c": ["b"]},
+            loops={"left": 2},
+        )
+
+        meta = {entry["id"]: entry for entry in merged.steps_meta}
+        self.assertEqual(meta["c"]["dependencies"], ["b"])
+        self.assertEqual(merged.hidden_steps, {"a", "b"})
+        self.assertEqual(node_names(merged), ["__left_pipeline__", "c"])
+
+    def test_invalid_loops_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            make_spec([{"name": "a"}], loop=0)
+        with self.assertRaisesRegex(ValueError, "non-negative integer"):
+            make_spec([{"name": "a", "loop": -1}])
+        with self.assertRaisesRegex(ValueError, "unknown loop side"):
+            merge_graphs(
+                make_spec([{"name": "a"}]),
+                make_spec([{"name": "c"}]),
+                loops={"middle": 2},
+            )
 
 
 class RebindStepClassTest(unittest.TestCase):

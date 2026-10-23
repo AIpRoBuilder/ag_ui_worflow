@@ -16,9 +16,24 @@ package.__path__ = [str(Path(__file__).resolve().parents[1])]
 sys.modules[package.__name__] = package
 params_module = importlib.import_module(f"{package.__name__}.params")
 pool_module = importlib.import_module(f"{package.__name__}.pool")
+workflow_types_module = importlib.import_module(f"{package.__name__}.workflow_types")
 WorkflowParam = params_module.WorkflowParam
 WorkflowPipelinePool = pool_module.WorkflowPipelinePool
 WORKFLOW_PARAM_KEY = params_module.WORKFLOW_PARAM_KEY
+StepRunOutput = workflow_types_module.StepRunOutput
+
+
+class CanRunTest(unittest.TestCase):
+    def test_repeat_allows_completed_step_and_keeps_dependency_check(self):
+        param = WorkflowParam()
+        param.complete("step", StepRunOutput(), {})
+
+        self.assertFalse(param.can_run("step", []))
+        self.assertTrue(param.can_run("step", [], repeat=True))
+        self.assertFalse(param.can_run("step", ["missing"], repeat=True))
+
+        param.complete("dep", StepRunOutput(), {})
+        self.assertTrue(param.can_run("step", ["dep"], repeat=True))
 
 
 class RequestNode(GNode):

@@ -135,10 +135,29 @@ dependencies must be visible to `param.can_run(...)`: create a subclass with
 `rebind_step_class(cls, step_id="new", dependencies=[...])`. Names must stay unique,
 and every node needs a factory because the JSON builder constructs each element fresh.
 
+Set `loop` on a `GraphSpec`, or override it at merge time, to repeat one side:
+
+```python
+left = GraphSpec.from_json(left_json, left_classes, steps_meta=left_meta, loop=3)
+merged = merge_graphs(left, right, bridges={"right_entry": ["left_exit"]})
+
+# equivalent per-merge override
+merged = merge_graphs(left, right, bridges={"right_entry": ["left_exit"]},
+                      loops={"left": 3})
+```
+
+A looped side is materialized as one native `GRegion` node with a group loop, so its
+whole internal DAG runs N times. Bridges involving a looped side attach to the wrapper
+node, at group granularity. `GRegion` is used instead of `GCluster` because it preserves
+dependency order on every pass. `WorkflowStepNode` subclasses inside a looped side must
+set `REPEATABLE = True`; they then rerun and overwrite their output each pass. Custom wait
+functions should call `param.can_run(..., repeat=self.REPEATABLE)`.
+
 For workflow node subclasses, JSON `name` must match `STEP_ID`, and JSON `depends`
 should match `DEPENDENCIES` for ordinary output-producing dependencies.
-JSON declaration order need not be topological. Optional `loop` controls native run
-repetitions; workflow nodes still record one completion per run. Native condition groups need
+JSON declaration order need not be topological. Optional `loop` on a JSON node controls
+native run repetitions; a `WorkflowStepNode` only accepts re-entry when `REPEATABLE = True`.
+Native condition groups need
 `meta_type: "GCondition"` and a mapped `GCondition` subclass; branch nodes list the
 condition's name in `depends`, in branch-selection order.
 

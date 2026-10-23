@@ -22,6 +22,9 @@ class WorkflowStepNode(GNode):
     PROMPT = ""
     DEPENDENCIES: list[str] = []
     INPUT_REQUIRED = True
+    # Loop the native graph only when this step may run more than once with the
+    # same step id, overwriting its previous output.
+    REPEATABLE = False
     DESCRIPTOR_PROMPT_FILE = str(ROOT_DIR / "nodes" / "step_node" / "descriptor_prompt.md")
 
     def __init__(self) -> None:
@@ -38,7 +41,7 @@ class WorkflowStepNode(GNode):
 
     def run(self) -> CStatus:
         param = self.get_workflow_param()
-        if not param.can_run(self.STEP_ID, self.DEPENDENCIES):
+        if not param.can_run(self.STEP_ID, self.DEPENDENCIES, repeat=self.REPEATABLE):
             return CStatus()
 
         self._set_state("running")

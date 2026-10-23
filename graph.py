@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydaograph import GElement
+from pydaograph import GElement, GRegion
 
 
 NodeFactory = Callable[[], GElement]
@@ -34,19 +34,32 @@ class GraphSpec:
     the engine metadata (``id`` plus optional ``dependencies`` / ``branches``)
     for the same graph.
 
+    ``loop`` repeats this whole graph when it is materialized: the spec is
+    collapsed into one native ``GRegion`` node whose group loop runs the
+    internal DAG that many times. It is not a per-node loop.
+
+    ``hidden_steps`` lists step ids nested inside wrapper nodes produced by
+    :func:`merge_graphs`. It lets ``steps_meta`` keep real step ids while the
+    wrapped nodes are no longer top-level. Callers normally leave it empty.
+
     Construction validates unique names, known dependencies, one factory per
-    node, metadata referencing real nodes, and acyclic dependencies. Use
+    node, metadata referencing real steps, and acyclic dependencies. Use
     :meth:`from_json` to start from an existing graph JSON string.
     """
 
     nodes: list[dict[str, Any]]
     classes: Mapping[str, NodeFactory]
     steps_meta: list[dict[str, Any]] = field(default_factory=list)
+    loop: int = 1
+    hidden_steps: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self.nodes = [dict(node) for node in self.nodes]
         self.classes = dict(self.classes)
         self.steps_meta = [dict(step) for step in self.steps_meta]
+        if isinstance(self.hidden_steps, (str, bytes, bytearray)):
+            raise ValueError("hidden_steps must be an iterable of step ids, not a string")
+        self.hidden_steps = set(self.hidden_steps)
         _validate_spec(self)
 
     @classmethod
@@ -56,6 +69,7 @@ class GraphSpec:
         node_classes: Mapping[str, NodeFactory],
         *,
         steps_meta: Iterable[dict[str, Any]] = (),
+        loop: int = 1,
     ) -> GraphSpec:
         """Build a spec from ``{"nodes": [...]}`` JSON text and its class map."""
         try:
@@ -64,17 +78,43 @@ class GraphSpec:
             raise ValueError(f"pipeline_json is not valid JSON: {exc.msg}") from exc
         if not isinstance(payload, dict) or not isinstance(payload.get("nodes"), list):
             raise ValueError('pipeline_json must be a JSON object with a "nodes" array')
-        return cls(nodes=payload["nodes"], classes=node_classes, steps_meta=list(steps_meta))
+        return cls(
+            nodes=payload["nodes"],
+            classes=node_classes,
+            steps_meta=list(steps_meta),
+            loop=loop,
+        )
+
+    def materialized_graph(self) -> tuple[list[dict[str, Any]], dict[str, NodeFactory]]:
+        """Return the node list and class map pydaograph should build.
+
+        A graph with ``loop == 1`` is returned as-is. A looped graph is collapsed
+        into one ``GRegion`` node carrying the native loop count, so its whole
+        internal DAG executes that many times.
+        """
+        if self.loop == 1:
+            return [dict(node) for node in self.nodes], dict(self.classes)
+
+        wrapper = self._wrapper_name()
+        names = {node["name"]: node["name"] for node in self.nodes}
+        return (
+            [{"name": wrapper, "meta_type": "GRegion", "loop": self.loop}],
+            {wrapper: _region_factory(self, names)},
+        )
 
     @property
     def pipeline_json(self) -> str:
         """JSON text accepted by ``GPipeline.buildFromJsonStr`` and the pool."""
-        return json.dumps({"nodes": self.nodes}, ensure_ascii=False)
+        nodes, _ = self.materialized_graph()
+        return json.dumps({"nodes": nodes}, ensure_ascii=False)
 
     @property
     def node_classes(self) -> dict[str, NodeFactory]:
-        """A copy of the name -> factory mapping accepted by the pool."""
-        return dict(self.classes)
+        """The class map matching :attr:`pipeline_json`."""
+        return self.materialized_graph()[1]
+
+    def _wrapper_name(self) -> str:
+        return _unique_name("__pipeline__", {node["name"] for node in self.nodes})
 
 
 def merge_graphs(
@@ -83,6 +123,7 @@ def merge_graphs(
     *,
     bridges: Mapping[str, Sequence[str]] | None = None,
     rename: Callable[[str, str], str] | None = None,
+    loops: Mapping[str, int] | None = None,
 ) -> GraphSpec:
     """Combine ``left`` and ``right`` into one DAG and return the merged spec.
 
@@ -90,6 +131,11 @@ def merge_graphs(
     must wait for; both keys and values use the original, pre-``rename`` names.
     Because bridge edges only point from the right graph into the left graph,
     merging two acyclic specs stays acyclic.
+
+    ``loops`` overrides ``left.loop`` / ``right.loop`` with ``"left"`` /
+    ``"right"`` keys. A looped side becomes one native ``GRegion`` node with
+    pydaograph's group loop, so the whole side executes N times. Bridges
+    involving a looped side attach to the wrapper node, at group granularity.
 
     ``rename`` is called as ``rename(side, name)`` with ``side`` either
     ``"left"`` or ``"right"``. It is required when the two graphs reuse a node
@@ -99,7 +145,7 @@ def merge_graphs(
 
     Inputs are not mutated. ``steps_meta`` entries are merged alongside the
     nodes, and their ``dependencies`` / ``branches`` are rewritten with the same
-    names (bridge dependencies are added to the right-side entries).
+    names. Bridge dependencies use real step ids, not wrapper node names.
     """
     bridge_map = {
         target: _dedupe(_dependency_list({"bridges": deps}, "bridges", f"bridge target {target!r}"))
@@ -113,6 +159,19 @@ def merge_graphs(
         for dependency in dependencies:
             if dependency not in left_names:
                 raise ValueError(f"bridge dependency {dependency!r} is not a node in the left graph")
+
+    loop_overrides = dict(loops or {})
+    unknown_sides = set(loop_overrides) - {"left", "right"}
+    if unknown_sides:
+        raise ValueError(
+            f"unknown loop side(s): {', '.join(map(repr, sorted(unknown_sides, key=str)))}"
+        )
+    left_loop = _graph_loop(loop_overrides.get("left", left.loop), "left")
+    right_loop = _graph_loop(loop_overrides.get("right", right.loop), "right")
+    if left_loop > 1 and not left.nodes:
+        raise ValueError("left loop requires at least one node")
+    if right_loop > 1 and not right.nodes:
+        raise ValueError("right loop requires at least one node")
 
     rename = rename or (lambda _side, name: name)
     name_map: dict[tuple[str, str], str] = {}
@@ -132,12 +191,67 @@ def merge_graphs(
             taken[merged_name] = (side, original)
             name_map[(side, original)] = merged_name
 
+    used = set(taken)
+    left_wrapper = _unique_name("__left_pipeline__", used) if left_loop > 1 else None
+    if left_wrapper is not None:
+        used.add(left_wrapper)
+    right_wrapper = _unique_name("__right_pipeline__", used) if right_loop > 1 else None
+    if right_wrapper is not None:
+        used.add(right_wrapper)
+
     def mapped(side: str, name: str) -> str:
         return name_map[(side, name)]
 
+    def renamed_step(side: str, name: str) -> str:
+        # Metadata may reference a step nested inside a wrapper and therefore
+        # absent from the top-level node map.
+        return name_map.get((side, name), rename(side, name))
+
+    def left_dependency(name: str) -> str:
+        return left_wrapper if left_wrapper is not None else mapped("left", name)
+
+    bridge_meta_dependencies = {
+        target: _dedupe(mapped("left", dep) for dep in dependencies)
+        for target, dependencies in bridge_map.items()
+    }
+    all_bridge_meta_dependencies = _dedupe(
+        dep for dependencies in bridge_meta_dependencies.values() for dep in dependencies
+    )
+    right_wrapper_dependencies = (
+        _dedupe(
+            left_dependency(dep)
+            for dependencies in bridge_map.values()
+            for dep in dependencies
+        )
+        if right_wrapper is not None
+        else []
+    )
+
     merged_nodes: list[dict[str, Any]] = []
     merged_classes: dict[str, NodeFactory] = {}
-    for side, spec in (("left", left), ("right", right)):
+    hidden_steps: set[str] = set()
+
+    for side, spec, loop, wrapper in (
+        ("left", left, left_loop, left_wrapper),
+        ("right", right, right_loop, right_wrapper),
+    ):
+        emitted_names = {node["name"]: mapped(side, node["name"]) for node in spec.nodes}
+
+        if loop > 1:
+            assert wrapper is not None
+            merged_classes[wrapper] = _region_factory(spec, emitted_names)
+            wrapper_node: dict[str, Any] = {
+                "name": wrapper,
+                "meta_type": "GRegion",
+                "loop": loop,
+            }
+            if side == "right" and right_wrapper_dependencies:
+                wrapper_node["depends"] = right_wrapper_dependencies
+            merged_nodes.append(wrapper_node)
+            hidden_steps.update(emitted_names.values())
+            hidden_steps.update(renamed_step(side, step) for step in spec.hidden_steps)
+            continue
+
         for node in spec.nodes:
             original = node["name"]
             merged_name = mapped(side, original)
@@ -148,12 +262,14 @@ def merge_graphs(
             )
             if side == "right":
                 dependencies = _dedupe(
-                    [*dependencies, *(mapped("left", dep) for dep in bridge_map.get(original, ()))]
+                    [*dependencies, *(left_dependency(dep) for dep in bridge_map.get(original, ()))]
                 )
             if dependencies or "depends" in node:
                 merged_node["depends"] = dependencies
             merged_nodes.append(merged_node)
             merged_classes[merged_name] = spec.classes[original]
+
+        hidden_steps.update(renamed_step(side, step) for step in spec.hidden_steps)
 
     merged_meta: list[dict[str, Any]] = []
     for side, spec in (("left", left), ("right", right)):
@@ -162,23 +278,33 @@ def merge_graphs(
             merged_entry = {
                 key: value for key, value in entry.items() if key not in ("id", *_META_REFERENCE_FIELDS)
             }
-            merged_entry["id"] = mapped(side, original)
+            merged_entry["id"] = renamed_step(side, original)
             dependencies = _dedupe(
-                [mapped(side, dep) for dep in _dependency_list(entry, "dependencies", original)]
+                [renamed_step(side, dep) for dep in _dependency_list(entry, "dependencies", original)]
             )
             if side == "right":
-                dependencies = _dedupe(
-                    [*dependencies, *(mapped("left", dep) for dep in bridge_map.get(original, ()))]
-                )
+                if right_loop > 1:
+                    dependencies = _dedupe([*dependencies, *all_bridge_meta_dependencies])
+                else:
+                    dependencies = _dedupe(
+                        [*dependencies, *bridge_meta_dependencies.get(original, ())]
+                    )
             if dependencies or "dependencies" in entry:
                 merged_entry["dependencies"] = dependencies
             if "branches" in entry:
                 merged_entry["branches"] = [
-                    mapped(side, branch) for branch in _dependency_list(entry, "branches", original)
+                    renamed_step(side, branch)
+                    for branch in _dependency_list(entry, "branches", original)
                 ]
             merged_meta.append(merged_entry)
 
-    return GraphSpec(nodes=merged_nodes, classes=merged_classes, steps_meta=merged_meta)
+    return GraphSpec(
+        nodes=merged_nodes,
+        classes=merged_classes,
+        steps_meta=merged_meta,
+        loop=1,
+        hidden_steps=hidden_steps,
+    )
 
 
 def rebind_step_class(
@@ -228,7 +354,53 @@ def _dedupe(values: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _region_factory(spec: GraphSpec, emitted_names: Mapping[str, str]) -> NodeFactory:
+    """Build one fresh ``GRegion`` containing fresh copies of ``spec``'s nodes."""
+
+    def create() -> GElement:
+        children: dict[str, GElement] = {}
+        for node in spec.nodes:
+            original = node["name"]
+            child = spec.classes[original]()
+            child.setName(emitted_names[original])
+            child.setLoop(_node_loop(node))
+            children[original] = child
+
+        for node in spec.nodes:
+            original = node["name"]
+            dependencies = _dependency_list(node, "depends", f"node {original!r}")
+            if dependencies:
+                children[original].addDependGElements({children[dep] for dep in dependencies})
+
+        return GRegion(list(children.values()))
+
+    return create
+
+
+def _node_loop(node: Mapping[str, Any]) -> int:
+    return int(node.get("loop", 1))
+
+
+def _graph_loop(value: Any, owner: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{owner} loop must be a positive integer")
+    return value
+
+
+def _unique_name(base: str, used: set[str]) -> str:
+    candidate = base
+    index = 2
+    while candidate in used:
+        candidate = f"{base}{index}"
+        index += 1
+    return candidate
+
+
 def _validate_spec(spec: GraphSpec) -> None:
+    _graph_loop(spec.loop, "graph")
+    if spec.loop > 1 and not spec.nodes:
+        raise ValueError("a looped graph needs at least one node")
+
     nodes: dict[str, dict[str, Any]] = {}
     for node in spec.nodes:
         if not isinstance(node, dict):
@@ -238,6 +410,10 @@ def _validate_spec(spec: GraphSpec) -> None:
             raise ValueError("each graph node needs a non-empty string 'name'")
         if name in nodes:
             raise ValueError(f"duplicate graph node name: {name!r}")
+        if "loop" in node:
+            value = node["loop"]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"node {name!r} 'loop' must be a non-negative integer")
         nodes[name] = node
 
     for name, node in nodes.items():
@@ -263,6 +439,12 @@ def _validate_spec(spec: GraphSpec) -> None:
     if extra:
         raise ValueError(f"class factory without a graph node: {', '.join(map(repr, extra))}")
 
+    for step in spec.hidden_steps:
+        if not isinstance(step, str) or not step.strip():
+            raise ValueError("hidden_steps must contain non-empty step ids")
+
+    known_steps = set(nodes) | set(spec.hidden_steps)
+
     meta_ids: set[str] = set()
     for entry in spec.steps_meta:
         if not isinstance(entry, dict):
@@ -273,11 +455,13 @@ def _validate_spec(spec: GraphSpec) -> None:
         if step_id in meta_ids:
             raise ValueError(f"duplicate steps_meta id: {step_id!r}")
         meta_ids.add(step_id)
-        if step_id not in nodes:
-            raise ValueError(f"steps_meta id {step_id!r} has no matching graph node")
+        if step_id not in known_steps:
+            raise ValueError(
+                f"steps_meta id {step_id!r} has no matching graph node or hidden step"
+            )
         for key in _META_REFERENCE_FIELDS:
             references = _dependency_list(entry, key, f"steps_meta {step_id!r}")
-            unknown = [reference for reference in references if reference not in nodes]
+            unknown = [reference for reference in references if reference not in known_steps]
             if unknown:
                 raise ValueError(
                     f"steps_meta {step_id!r} {key!r} references unknown node(s): "
