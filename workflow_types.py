@@ -2,13 +2,52 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
 
 from ag_ui.core import InputContent, UserMessage
 
 
 UserInput = str | UserMessage | list[InputContent]
 StepRunInput = UserInput | bytes | bytearray | dict[str, Any] | list[Any] | None
+
+
+class RequiredStepMeta(TypedDict):
+    """Keys every engine step entry must provide."""
+
+    id: str
+    dependencies: list[str]
+
+
+class StepMeta(RequiredStepMeta, total=False):
+    """Step metadata exchanged with ``WorkflowEngine`` and AG-UI events.
+
+    ``id`` and ``dependencies`` are required. The remaining keys are optional:
+    ``title``/``prompt`` are used by step cards and input-request events;
+    descriptor fields are carried through for UI consumers but are not read by
+    the engine. Minimal metadata such as ``{"id": ..., "dependencies": []}`` is
+    valid.
+    """
+
+    title: str
+    prompt: str
+    inputRequired: bool
+    metaNodeKind: str
+    repeatable: bool
+    branches: list[str]
+
+    # Optional descriptor payload produced by ``WorkflowStepNode.step_meta()``.
+    metaDescription: str
+    structure: str
+    function: str
+    implementationGuide: str
+    example: str
+
+
+class StepMetaProvider(Protocol):
+    """Structural contract for node classes that expose step metadata."""
+
+    @classmethod
+    def step_meta(cls) -> StepMeta: ...
 
 
 @dataclass(slots=True)

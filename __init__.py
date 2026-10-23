@@ -8,10 +8,22 @@ from .params import WorkflowParam
 from .pool import WorkflowPipelinePool
 from .services import WorkflowServiceRecord, WorkflowServiceRegistryCenter, workflow_service_registry
 from .streaming import event_to_dict, to_sse_payload
-from .workflow_types import StepRunInput, StepRunOutput, UserInput, WorkflowConditionDefinition, WorkflowStepDefinition
+from .workflow_types import (
+    RequiredStepMeta,
+    StepMeta,
+    StepMetaProvider,
+    StepRunInput,
+    StepRunOutput,
+    UserInput,
+    WorkflowConditionDefinition,
+    WorkflowStepDefinition,
+)
 
 __all__ = [
     "GraphSpec",
+    "RequiredStepMeta",
+    "StepMeta",
+    "StepMetaProvider",
     "RunResult",
     "StepRunOutput",
     "StepRunInput",

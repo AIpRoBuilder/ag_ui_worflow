@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import Lock, Thread
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
 from pydaograph import CStatus, GPipeline, StdFutureCStatus
 
@@ -11,7 +12,7 @@ from .events import WorkflowEventFactory
 from .params import WorkflowParam
 from .pool import WorkflowPipelinePool
 from .streaming import to_sse_payload
-from .workflow_types import StepRunInput, StepRunOutput, step_output_text
+from .workflow_types import StepMeta, StepRunInput, StepRunOutput, step_output_text
 
 
 @dataclass(slots=True)
@@ -23,7 +24,7 @@ class RunResult:
     new_steps: list[str]  # steps completed during this request, in order
     outputs: dict[str, StepRunOutput]  # every step completed so far
     states: dict[str, str]
-    awaiting: dict[str, Any] | None = None  # meta of the step the run waits on
+    awaiting: StepMeta | None = None  # meta of the step the run waits on
     error: str = ""
     code: int = 0
     failed_step: str = ""
@@ -60,7 +61,7 @@ class _Run:
             status = CStatus(-1, f"pipeline run failed: {exc}")
         self.param.finish(status)
 
-    def result(self, steps: dict[str, dict[str, Any]]) -> RunResult:
+    def result(self, steps: dict[str, StepMeta]) -> RunResult:
         """Observe reported pauses or native completion; never invoke the wait function."""
         param = self.param
         with param.condition:
@@ -76,7 +77,7 @@ class _Run:
                 new_steps=param.completed[self.reported:],
                 outputs=dict(param.outputs),
                 states=dict(param.states),
-                awaiting=steps.get(step_id, {"id": step_id}) if awaiting else None,
+                awaiting=steps.get(step_id, {"id": step_id, "dependencies": []}) if awaiting else None,
                 error=failure.getInfo() if failure is not None else "",
                 code=failure.getCode() if failure is not None else 0,
                 failed_step=param.failed_step,
@@ -104,31 +105,35 @@ class WorkflowEngine:
     the native graph pauses while that function returns False. The engine only observes
     states reported through WorkflowParam, posts input, and collects native completion.
     Callbacks that do not report a pause simply keep this call open until the graph finishes.
+
+    ``steps_meta`` is optional. It supplies step titles/prompts for events and dependency
+    information used to detect terminal steps. Empty metadata still runs normally, but step
+    cards contain only ids and ``isFinal`` is never set.
     """
 
     def __init__(
         self,
         *,
         graph_config_id: str,
-        steps_meta: list[dict[str, Any]],
+        steps_meta: Sequence[StepMeta] | None = None,
         pool: WorkflowPipelinePool,
     ) -> None:
         self.graph_config_id = graph_config_id
         self.pool = pool
-        self.steps_meta = self._normalize_steps_meta(steps_meta)
-        self._step_map = {step["id"]: step for step in self.steps_meta}
+        self.steps_meta = self._normalize_steps_meta(steps_meta or [])
+        self._step_map: dict[str, StepMeta] = {step["id"]: step for step in self.steps_meta}
         self._events = WorkflowEventFactory()
 
         self._lock = Lock()  # guards _runs; each run has its own lock for its requests
         self._runs: dict[str, _Run] = {}
 
-    def _normalize_steps_meta(self, steps_meta: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        normalized_steps: list[dict[str, Any]] = []
+    def _normalize_steps_meta(self, steps_meta: Sequence[StepMeta]) -> list[StepMeta]:
+        normalized_steps: list[StepMeta] = []
         for raw_step in steps_meta:
             if not isinstance(raw_step, dict):
                 continue
 
-            step = dict(raw_step)
+            step = cast(StepMeta, dict(raw_step))
             step_id = str(step.get("id", "")).strip()
             if not step_id:
                 continue
@@ -255,7 +260,7 @@ class WorkflowEngine:
                 yield to_sse_payload(event)
             yield to_sse_payload(
                 self._events.step_card_event(
-                    step=self._step_map.get(step_id, {"id": step_id}),
+                    step=self._step_map.get(step_id, {"id": step_id, "dependencies": []}),
                     output=output,
                     state=result.states.get(step_id, "completed"),
                     unlocked=True,

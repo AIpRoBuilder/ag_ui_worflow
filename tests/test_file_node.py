@@ -102,6 +102,7 @@ class FileNodeContractTest(unittest.TestCase):
         meta = ReceiveFileNode.step_meta()
         self.assertEqual(meta["id"], "file")
         self.assertEqual(meta["metaNodeKind"], "WorkflowFileNode")
+        self.assertFalse(meta["repeatable"])
         self.assertIn("process_input(file_bytes", meta["structure"])
         self.assertIn("abstract", meta["metaDescription"])
 
@@ -126,6 +127,7 @@ class FileNodeRunTest(unittest.TestCase):
         self.owner = Mock()
         self.owner.STEP_ID = "file"
         self.owner.DEPENDENCIES = []
+        self.owner.REPEATABLE = False
         self.owner.get_workflow_param.return_value = self.param
         self.output = StepRunOutput(card={"summary": "received"}, derived={"byteSize": 4})
         self.owner.process_input.return_value = self.output

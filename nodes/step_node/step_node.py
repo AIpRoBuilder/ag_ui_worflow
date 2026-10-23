@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from pydaograph import CStatus, GNode
 
 from ...params import WORKFLOW_PARAM_KEY, WorkflowParam
 from ...tools import node_main_utility, node_subclass_implementation
-from ...workflow_types import StepRunOutput
+from ...workflow_types import StepMeta, StepRunOutput
 from .._shared import (
     _apply_node_descriptor_attributes,
     _build_node_descriptor_meta,
@@ -96,13 +96,17 @@ class WorkflowStepNode(GNode):
         return "WorkflowStepNode"
 
     @classmethod
-    def step_meta(cls) -> dict[str, Any]:
-        return {
-            "id": cls.STEP_ID,
-            "title": cls.TITLE,
-            "prompt": cls.PROMPT,
-            "dependencies": list(cls.DEPENDENCIES),
-            "inputRequired": cls.INPUT_REQUIRED,
-            "metaNodeKind": cls.meta_node_kind(),
-            **_build_node_descriptor_meta(cls, cls.DESCRIPTOR_PROMPT_FILE),
-        }
+    def step_meta(cls) -> StepMeta:
+        return cast(
+            StepMeta,
+            {
+                "id": cls.STEP_ID,
+                "title": cls.TITLE,
+                "prompt": cls.PROMPT,
+                "dependencies": list(cls.DEPENDENCIES),
+                "inputRequired": cls.INPUT_REQUIRED,
+                "metaNodeKind": cls.meta_node_kind(),
+                "repeatable": cls.REPEATABLE,
+                **_build_node_descriptor_meta(cls, cls.DESCRIPTOR_PROMPT_FILE),
+            },
+        )

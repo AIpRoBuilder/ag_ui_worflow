@@ -12,9 +12,11 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from pydaograph import GElement, GRegion
+
+from .workflow_types import StepMeta
 
 
 NodeFactory = Callable[[], GElement]
@@ -49,14 +51,14 @@ class GraphSpec:
 
     nodes: list[dict[str, Any]]
     classes: Mapping[str, NodeFactory]
-    steps_meta: list[dict[str, Any]] = field(default_factory=list)
+    steps_meta: list[StepMeta] = field(default_factory=list)
     loop: int = 1
     hidden_steps: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self.nodes = [dict(node) for node in self.nodes]
         self.classes = dict(self.classes)
-        self.steps_meta = [dict(step) for step in self.steps_meta]
+        self.steps_meta = [cast(StepMeta, dict(step)) for step in self.steps_meta]
         if isinstance(self.hidden_steps, (str, bytes, bytearray)):
             raise ValueError("hidden_steps must be an iterable of step ids, not a string")
         self.hidden_steps = set(self.hidden_steps)
@@ -68,7 +70,7 @@ class GraphSpec:
         pipeline_json: str,
         node_classes: Mapping[str, NodeFactory],
         *,
-        steps_meta: Iterable[dict[str, Any]] = (),
+        steps_meta: Iterable[StepMeta] = (),
         loop: int = 1,
     ) -> GraphSpec:
         """Build a spec from ``{"nodes": [...]}`` JSON text and its class map."""
@@ -271,13 +273,18 @@ def merge_graphs(
 
         hidden_steps.update(renamed_step(side, step) for step in spec.hidden_steps)
 
-    merged_meta: list[dict[str, Any]] = []
+    merged_meta: list[StepMeta] = []
     for side, spec in (("left", left), ("right", right)):
         for entry in spec.steps_meta:
             original = entry["id"]
-            merged_entry = {
-                key: value for key, value in entry.items() if key not in ("id", *_META_REFERENCE_FIELDS)
-            }
+            merged_entry = cast(
+                StepMeta,
+                {
+                    key: value
+                    for key, value in entry.items()
+                    if key not in ("id", *_META_REFERENCE_FIELDS)
+                },
+            )
             merged_entry["id"] = renamed_step(side, original)
             dependencies = _dedupe(
                 [renamed_step(side, dep) for dep in _dependency_list(entry, "dependencies", original)]

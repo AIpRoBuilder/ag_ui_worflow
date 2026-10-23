@@ -23,6 +23,7 @@ _spec.loader.exec_module(_package)
 
 from ag_ui_workflow import (  # noqa: E402
     GraphSpec,
+    StepMeta,
     StepRunOutput,
     WorkflowEngine,
     WorkflowPipelinePool,
@@ -70,10 +71,10 @@ class FinishStep(WorkflowStepNode):
     TITLE = "Finish"
     DEPENDENCIES = ["transform"]
     INPUT_REQUIRED = False
-    
+
     def __init__(self) -> None:
-            super().__init__()
-            self.runs = 0
+        super().__init__()
+        self.runs = 0
 
     def process_input(self, user_input, dependency_results, session_state):
         self.runs += 1
@@ -96,9 +97,24 @@ LEFT_JSON = json.dumps(
 )
 RIGHT_JSON = json.dumps({"nodes": [{"name": "finish"}]})
 
-LEFT_META = [node.step_meta() for node in LEFT_NODES]
+
+def minimal_step_meta(
+    cls: type[WorkflowStepNode],
+    *,
+    dependencies: list[str] | None = None,
+) -> StepMeta:
+    """Engine metadata without the optional descriptor document payload."""
+    return {
+        "id": cls.STEP_ID,
+        "title": cls.TITLE,
+        "prompt": cls.PROMPT,
+        "dependencies": list(cls.DEPENDENCIES) if dependencies is None else dependencies,
+    }
+
+
+LEFT_META = [minimal_step_meta(node) for node in LEFT_NODES]
 # The bridge is added by merge_graphs, so the right spec declares no dependency yet.
-RIGHT_META = [dict(FinishStep.step_meta(), dependencies=[])]
+RIGHT_META = [minimal_step_meta(FinishStep, dependencies=[])]
 
 
 def main() -> None:

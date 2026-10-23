@@ -15,7 +15,7 @@ from ag_ui.core import (
     TextMessageStartEvent,
 )
 
-from .workflow_types import StepRunOutput
+from .workflow_types import StepMeta, StepRunOutput
 
 
 class WorkflowEventFactory:
@@ -52,7 +52,7 @@ class WorkflowEventFactory:
     def step_card_event(
         self,
         *,
-        step: dict[str, Any],
+        step: StepMeta,
         output: StepRunOutput,
         state: str,
         unlocked: bool,
@@ -71,7 +71,7 @@ class WorkflowEventFactory:
         }
         return CustomEvent(name="step_card", value=event_payload)
 
-    def input_required_event(self, *, step: dict[str, Any]) -> CustomEvent:
+    def input_required_event(self, *, step: StepMeta) -> CustomEvent:
         return CustomEvent(
             name="input_required",
             value={

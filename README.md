@@ -153,6 +153,13 @@ dependency order on every pass. `WorkflowStepNode` subclasses inside a looped si
 set `REPEATABLE = True`; they then rerun and overwrite their output each pass. Custom wait
 functions should call `param.can_run(..., repeat=self.REPEATABLE)`.
 
+`GraphSpec.steps_meta` and `WorkflowEngine.steps_meta` use the `StepMeta` contract:
+`id` and `dependencies` are required; `title`, `prompt`, `repeatable`, and descriptor
+fields are optional. `WorkflowStepNode.step_meta()` is a convenience that also includes
+the descriptor document, but minimal metadata such as
+`{"id": "step", "dependencies": []}` is valid. `WorkflowEngine` may be constructed without
+metadata; runs still work, but step cards contain only ids and `isFinal` is not set.
+
 For workflow node subclasses, JSON `name` must match `STEP_ID`, and JSON `depends`
 should match `DEPENDENCIES` for ordinary output-producing dependencies.
 JSON declaration order need not be topological. Optional `loop` on a JSON node controls

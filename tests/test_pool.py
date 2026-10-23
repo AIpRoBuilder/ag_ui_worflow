@@ -16,11 +16,21 @@ package.__path__ = [str(Path(__file__).resolve().parents[1])]
 sys.modules[package.__name__] = package
 params_module = importlib.import_module(f"{package.__name__}.params")
 pool_module = importlib.import_module(f"{package.__name__}.pool")
+engine_module = importlib.import_module(f"{package.__name__}.engine")
 workflow_types_module = importlib.import_module(f"{package.__name__}.workflow_types")
 WorkflowParam = params_module.WorkflowParam
 WorkflowPipelinePool = pool_module.WorkflowPipelinePool
+WorkflowEngine = engine_module.WorkflowEngine
 WORKFLOW_PARAM_KEY = params_module.WORKFLOW_PARAM_KEY
 StepRunOutput = workflow_types_module.StepRunOutput
+
+
+class EngineMetaTest(unittest.TestCase):
+    def test_engine_can_be_constructed_without_steps_meta(self):
+        engine = WorkflowEngine(graph_config_id="no-meta", pool=object())
+
+        self.assertEqual(engine.steps_meta, [])
+        self.assertEqual(engine._step_map, {})
 
 
 class CanRunTest(unittest.TestCase):
