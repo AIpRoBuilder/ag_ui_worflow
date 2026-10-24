@@ -17,9 +17,11 @@ package.__path__ = [str(Path(__file__).resolve().parents[1])]
 sys.modules[package.__name__] = package
 graph_module = importlib.import_module(f"{package.__name__}.graph")
 pool_module = importlib.import_module(f"{package.__name__}.pool")
+engine_module = importlib.import_module(f"{package.__name__}.engine")
 GraphSpec = graph_module.GraphSpec
 merge_graphs = graph_module.merge_graphs
 rebind_step_class = graph_module.rebind_step_class
+WorkflowEngine = engine_module.WorkflowEngine
 
 
 class RecordingNode(GNode):
@@ -264,6 +266,63 @@ class GraphLoopTest(unittest.TestCase):
                 make_spec([{"name": "c"}]),
                 loops={"middle": 2},
             )
+
+
+class EnginesMergeTest(unittest.TestCase):
+    def setUp(self):
+        RecordingNode.order = []
+
+    def test_merge_engines_builds_a_fresh_pool_from_the_merged_spec(self):
+        left_spec = make_spec(
+            [{"name": "a"}, {"name": "b", "depends": ["a"]}],
+            loop=2,
+        )
+        right_spec = make_spec([{"name": "c"}])
+
+        left_engine = WorkflowEngine.from_graph_spec(left_spec, graph_config_id="left")
+        right_engine = WorkflowEngine.from_graph_spec(right_spec, graph_config_id="right")
+        try:
+            merged = WorkflowEngine.merge(
+                left_engine,
+                right_engine,
+                bridges={"c": ["b"]},
+            )
+            try:
+                self.assertEqual(merged.graph_config_id, "left+right")
+                self.assertIsNot(merged.graph, left_spec)
+                self.assertIsNotNone(merged.graph)
+                assert merged.graph is not None
+                self.assertEqual(node_names(merged.graph), ["__left_pipeline__", "c"])
+
+                result = merged.run("merge-engines")
+                self.assertEqual(result.status, "completed")
+                self.assertEqual(RecordingNode.order, ["a", "b", "a", "b", "c"])
+            finally:
+                merged.close()
+        finally:
+            left_engine.close()
+            right_engine.close()
+
+    def test_merge_requires_graph_backed_engines(self):
+        left = WorkflowEngine(graph_config_id="left", pool=object())
+        right = WorkflowEngine(graph_config_id="right", pool=object())
+
+        with self.assertRaisesRegex(ValueError, "requires engines created from a GraphSpec"):
+            WorkflowEngine.merge(left, right)
+
+    def test_from_graph_spec_closes_the_pool_it_owns(self):
+        engine = WorkflowEngine.from_graph_spec(
+            make_spec([{"name": "a"}]),
+            graph_config_id="owned",
+        )
+        pool = engine.pool
+        try:
+            result = engine.run("owned")
+            self.assertEqual(result.status, "completed")
+        finally:
+            engine.close()
+
+        self.assertTrue(pool.closed)
 
 
 class RebindStepClassTest(unittest.TestCase):

@@ -26,9 +26,7 @@ from ag_ui_workflow import (  # noqa: E402
     StepMeta,
     StepRunOutput,
     WorkflowEngine,
-    WorkflowPipelinePool,
     WorkflowStepNode,
-    merge_graphs,
 )
 
 
@@ -129,32 +127,30 @@ def main() -> None:
         {node.STEP_ID: node for node in RIGHT_NODES},
         steps_meta=RIGHT_META,
     )
-    merged = merge_graphs(left, right, bridges={"finish": ["transform"]})
 
-    print("merged native graph:")
-    print(json.dumps(json.loads(merged.pipeline_json), indent=2))
-    print("\nmerged steps_meta (id/dependencies only):")
-    print(
-        json.dumps(
-            [
-                {"id": entry["id"], "dependencies": entry.get("dependencies", [])}
-                for entry in merged.steps_meta
-            ],
-            indent=2,
-        )
-    )
-    print("merged node_classes:", merged.node_classes, merged.pipeline_json)
-    with WorkflowPipelinePool(
-        pipeline_json=merged.pipeline_json,
-        node_classes=merged.node_classes,
-    ) as pool:
-
-        engine = WorkflowEngine(
-            graph_config_id="debug-merge-loop",
-            steps_meta=merged.steps_meta,
-            pool=pool,
+    left_engine = WorkflowEngine.from_graph_spec(left, graph_config_id="left")
+    right_engine = WorkflowEngine.from_graph_spec(right, graph_config_id="right")
+    try:
+        engine = WorkflowEngine.merge(
+            left_engine,
+            right_engine,
+            bridges={"finish": ["transform"]},
         )
         try:
+            print("merged graph config:", engine.graph_config_id)
+            print("merged native graph:")
+            print(json.dumps(json.loads(engine.graph.pipeline_json), indent=2))
+            print("\nmerged steps_meta (id/dependencies only):")
+            print(
+                json.dumps(
+                    [
+                        {"id": entry["id"], "dependencies": entry.get("dependencies", [])}
+                        for entry in engine.steps_meta
+                    ],
+                    indent=2,
+                )
+            )
+
             result = engine.run("debug-merge-loop")
             print("\nnew steps:", result.new_steps)
             print("collect:", result.outputs["collect"].derived)
@@ -164,6 +160,9 @@ def main() -> None:
                 print("error:", result.error)
         finally:
             engine.close()
+    finally:
+        left_engine.close()
+        right_engine.close()
 
 
 if __name__ == "__main__":

@@ -64,6 +64,11 @@ class WorkflowPipelinePool:
         return self._closing or self._closed
 
     @property
+    def size(self) -> int:
+        """Number of pipelines in the current generation."""
+        return self._size
+
+    @property
     def _active(self) -> int:
         current = [self._current] if self._current is not None else []
         return sum(generation.active for generation in (*self._retired, *current))

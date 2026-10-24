@@ -160,6 +160,30 @@ the descriptor document, but minimal metadata such as
 `{"id": "step", "dependencies": []}` is valid. `WorkflowEngine` may be constructed without
 metadata; runs still work, but step cards contain only ids and `isFinal` is not set.
 
+`WorkflowEngine` can also merge two graph-backed engines. Build each engine with
+`from_graph_spec`, then call `WorkflowEngine.merge`:
+
+```python
+left_engine = WorkflowEngine.from_graph_spec(left, graph_config_id="left", size=2)
+right_engine = WorkflowEngine.from_graph_spec(right, graph_config_id="right", size=2)
+
+merged_engine = WorkflowEngine.merge(
+    left_engine,
+    right_engine,
+    bridges={"right_entry": ["left_exit"]},
+)
+
+merged_engine.close()   # merged engine owns the pool it created
+left_engine.close()     # source engines own their pools too
+right_engine.close()
+```
+
+Merging requires both engines to retain a `GraphSpec` (`from_graph_spec(...)` or
+`graph=<GraphSpec>`). It builds a fresh pool from the merged spec; source engines and
+their pools are unchanged. `size` defaults to the larger source pool size, and
+`graph_config_id` defaults to `"left+right"`. Engines created by `from_graph_spec` or
+`merge` own their pools, so `close()` with no request id closes the pool as well.
+
 For workflow node subclasses, JSON `name` must match `STEP_ID`, and JSON `depends`
 should match `DEPENDENCIES` for ordinary output-producing dependencies.
 JSON declaration order need not be topological. Optional `loop` on a JSON node controls

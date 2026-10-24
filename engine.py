@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import Lock, Thread
@@ -9,6 +9,7 @@ from typing import Any, Iterator, cast
 from pydaograph import CStatus, GPipeline, StdFutureCStatus
 
 from .events import WorkflowEventFactory
+from .graph import GraphSpec, merge_graphs
 from .params import WorkflowParam
 from .pool import WorkflowPipelinePool
 from .streaming import to_sse_payload
@@ -109,6 +110,10 @@ class WorkflowEngine:
     ``steps_meta`` is optional. It supplies step titles/prompts for events and dependency
     information used to detect terminal steps. Empty metadata still runs normally, but step
     cards contain only ids and ``isFinal`` is never set.
+
+    ``graph`` retains the :class:`GraphSpec` this engine was built from. It is required for
+    :meth:`merge`; use :meth:`from_graph_spec` to create a mergeable engine. ``owns_pool``
+    marks a pool created by the engine, which :meth:`close` releases with the engine.
     """
 
     def __init__(
@@ -117,15 +122,96 @@ class WorkflowEngine:
         graph_config_id: str,
         steps_meta: Sequence[StepMeta] | None = None,
         pool: WorkflowPipelinePool,
+        graph: GraphSpec | None = None,
+        owns_pool: bool = False,
     ) -> None:
         self.graph_config_id = graph_config_id
         self.pool = pool
+        self.graph = graph
+        self._owns_pool = owns_pool
         self.steps_meta = self._normalize_steps_meta(steps_meta or [])
         self._step_map: dict[str, StepMeta] = {step["id"]: step for step in self.steps_meta}
         self._events = WorkflowEventFactory()
 
         self._lock = Lock()  # guards _runs; each run has its own lock for its requests
         self._runs: dict[str, _Run] = {}
+
+    @classmethod
+    def from_graph_spec(
+        cls,
+        graph: GraphSpec,
+        *,
+        graph_config_id: str,
+        size: int = 1,
+    ) -> WorkflowEngine:
+        """Build an engine and its own pipeline pool from ``graph``.
+
+        The spec remains available on :attr:`graph`, so the engine can later be
+        merged with :meth:`merge`. The engine owns the pool it creates: calling
+        :meth:`close` without a ``request_id`` closes that pool too.
+        """
+        pool = WorkflowPipelinePool(
+            pipeline_json=graph.pipeline_json,
+            node_classes=graph.node_classes,
+            size=size,
+        )
+        try:
+            return cls(
+                graph_config_id=graph_config_id,
+                steps_meta=graph.steps_meta,
+                pool=pool,
+                graph=graph,
+                owns_pool=True,
+            )
+        except BaseException:
+            pool.close()
+            raise
+
+    @classmethod
+    def merge(
+        cls,
+        left: WorkflowEngine,
+        right: WorkflowEngine,
+        *,
+        bridges: Mapping[str, Sequence[str]] | None = None,
+        rename: Callable[[str, str], str] | None = None,
+        loops: Mapping[str, int] | None = None,
+        graph_config_id: str | None = None,
+        size: int | None = None,
+    ) -> WorkflowEngine:
+        """Merge two graph-backed engines into a new engine and pool.
+
+        Both engines must retain a :class:`GraphSpec`: build them with
+        :meth:`from_graph_spec` or pass ``graph=...``. The merged engine gets a
+        fresh pool built from the merged spec; the source engines and their pools
+        are left unchanged. ``size`` defaults to the larger source pool size.
+
+        The returned engine owns its pool, so ``merged.close()`` without a
+        ``request_id`` closes both its runs and that pool.
+        """
+        if left.graph is None or right.graph is None:
+            raise ValueError(
+                "WorkflowEngine.merge requires engines created from a GraphSpec; "
+                "use WorkflowEngine.from_graph_spec(...) or pass graph=<GraphSpec>"
+            )
+        merged_graph = merge_graphs(
+            left.graph,
+            right.graph,
+            bridges=bridges,
+            rename=rename,
+            loops=loops,
+        )
+        merged_id = (
+            graph_config_id
+            if graph_config_id is not None
+            else f"{left.graph_config_id}+{right.graph_config_id}"
+        )
+        merged_size = size if size is not None else max(left.pool.size, right.pool.size)
+        return cls.from_graph_spec(
+            merged_graph,
+            graph_config_id=merged_id,
+            size=merged_size,
+        )
 
     def _normalize_steps_meta(self, steps_meta: Sequence[StepMeta]) -> list[StepMeta]:
         normalized_steps: list[StepMeta] = []
@@ -228,7 +314,11 @@ class WorkflowEngine:
         )
 
     def close(self, request_id: str | None = None) -> None:
-        """Abandon runs that wait for input (one request id, or all) and return their pipelines."""
+        """Abandon runs that wait for input (one request id, or all) and return their pipelines.
+
+        When ``request_id`` is ``None`` and this engine owns its pool, the pool is
+        closed too after its leases are released.
+        """
         with self._lock:
             runs = [(rid, run) for rid, run in self._runs.items() if request_id in (None, rid)]
         # Runs that already hold a pipeline go first: one still waiting for a pipeline needs them freed.
@@ -241,6 +331,10 @@ class WorkflowEngine:
                 self._drop(rid, run)
             finally:
                 run.lock.release()
+
+        if request_id is None and self._owns_pool:
+            self.pool.close()
+            self._owns_pool = False
 
     def _drop(self, request_id: str, run: _Run) -> None:
         run.end()
